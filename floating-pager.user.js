@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         悬浮翻页
 // @namespace    https://scripting.app/userscripts
-// @version      1.0.29
+// @version      1.0.30
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/floating-pager.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/floating-pager.user.js
-// @description  自动识别页面上一页/下一页，显示可拖动悬浮翻页菜单，并稳定记住菜单位置；v1.0.29 修复 rule34video 部分模型页底部分页按钮无法翻页。
+// @description  自动识别页面上一页/下一页，显示可拖动悬浮翻页菜单，并稳定记住菜单位置；v1.0.30 修复 rule34video 搜索页 AJAX 翻页页码识别。
 // @author       Scripting Agent
 // @match        http://*/*
 // @match        https://*/*
@@ -304,8 +304,17 @@
     return /(^|\.)rule34video\.com$/i.test(location.hostname);
   }
 
+  function rule34PageFromDataParameters(el) {
+    if (!el || !isRule34Video()) return "";
+    const raw = el.getAttribute?.("data-parameters") || "";
+    const match = raw.match(/(?:^|;)from_[^:;]*:0*(\d{1,5})(?:;|$)/i);
+    if (!match) return "";
+    return String(parseInt(match[1], 10));
+  }
+
   function isRule34PaginationContainer(el) {
     if (!el || !isRule34Video()) return false;
+    if (rule34PageFromDataParameters(el)) return true;
     return Boolean(el.closest?.('nav, .pagination, .pager, [class*="pagination"], [class*="pager"], [class*="pages"], [class*="page-list"], [class*="pagebar"]'));
   }
 
@@ -612,6 +621,8 @@
 
   function numericText(el) {
     const text = (el && (el.value || el.textContent || el.innerText || "")).trim();
+    const dataPage = isRule34Video() ? rule34PageFromDataParameters(el) : "";
+    if (dataPage) return dataPage;
     const match = text.match(/^0*(\d{1,5})$/);
     return match ? String(parseInt(match[1], 10)) : "";
   }
@@ -800,6 +811,8 @@
   function elementPageNumber(el) {
     if (!el) return "";
     const href = el.href || el.getAttribute?.("href") || "";
+    const fromData = isRule34Video() ? rule34PageFromDataParameters(el) : "";
+    if (fromData) return fromData;
     const fromHref = href ? pageFromUrl(href) : "";
     if (fromHref) return fromHref;
 
@@ -863,6 +876,7 @@
       let score = 0;
       if (arrowRe.test(text)) score += 80;
       if (wordRe.test(text)) score += 80;
+      if (rule34PageFromDataParameters(el)) score += 80;
       if (isRule34PaginationContainer(el)) score += 40;
       else if (el.closest('nav, .pagination, .pager, [class*="pagination"], [class*="pager"], [class*="pages"]')) score += 40;
       const rect = el.getBoundingClientRect();
