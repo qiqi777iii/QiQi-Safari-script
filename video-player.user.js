@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    qiqi777iii.videoplayer
-// @version      1.0.48
+// @version      1.0.49
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
 // @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.47 喇叭改白色与其他按钮一致（右下叉=静音），进退 5 秒改环形回旋箭头+正中心并放大，全屏图标缩小。
@@ -576,15 +576,10 @@
   }
 
   function seekSVG(dir) {
-    // 环形回旋箭头（Material replay/forward 路径）+ 正中心数字 5。
-    // 后退=箭头在左上（逆时针），前进=箭头在右上（顺时针）。
-    const ring = dir < 0
-      ? 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z'
-      : 'M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z';
+    // 只保留居中文字 -5 / +5，去掉圆环。
     const label = dir < 0 ? '-5' : '+5';
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" style="pointer-events:none">'
-      + '<path d="' + ring + '" fill="' + COLOR_ICON + '"/>'
-      + '<text x="12" y="13" text-anchor="middle" dominant-baseline="central" font-size="7" font-family="-apple-system,BlinkMacSystemFont,Arial" font-weight="700" fill="' + COLOR_ICON + '" stroke="none">' + label + '</text>'
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" style="pointer-events:none">'
+      + '<text x="12" y="12.5" text-anchor="middle" dominant-baseline="central" font-size="13" font-family="-apple-system,BlinkMacSystemFont,Arial" font-weight="700" fill="' + COLOR_ICON + '" stroke="none">' + label + '</text>'
       + '</svg>';
   }
 
