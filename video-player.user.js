@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    qiqi777iii.videoplayer
-// @version      1.0.45
+// @version      1.0.46
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
-// @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.45 统一所有按钮图标尺寸为22px，放大并优化带声音/静音角标。
+// @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.46 带声音/静音改为完整喇叭图标（去角标），进退 5 秒改为圆弧回旋箭头+居中5。
 // @match        *://*/*
 // @run-at       document-start
 // @grant        GM.getValue
@@ -576,13 +576,14 @@
   }
 
   function seekSVG(dir) {
-    const arrow = dir < 0
-      ? '<path d="M11 7l-5 5 5 5V7z"/><path d="M18 7l-5 5 5 5V7z"/>'
-      : '<path d="M6 7l5 5-5 5V7z"/><path d="M13 7l5 5-5 5V7z"/>';
-    const x = dir < 0 ? 8.5 : 6.5;
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="' + COLOR_ICON + '" style="pointer-events:none">'
-      + arrow
-      + '<text x="' + x + '" y="21" font-size="7" font-family="-apple-system,BlinkMacSystemFont,Arial" font-weight="700" fill="' + COLOR_ICON + '">5</text>'
+    // 圆弧回旋箭头 + 居中数字 5：后退=逆时针，前进=顺时针。
+    // 弧线顶部留缺口，缺口处放箭头；数字 5 居中。
+    const arc = dir < 0
+      ? '<path d="M5.5 8.5A7 7 0 1 1 4.2 13.5" fill="none" stroke="' + COLOR_ICON + '" stroke-width="2" stroke-linecap="round"/><path d="M5.5 4.3l.2 4.4-4.3-.6z" fill="' + COLOR_ICON + '" stroke="none"/>'
+      : '<path d="M18.5 8.5A7 7 0 1 0 19.8 13.5" fill="none" stroke="' + COLOR_ICON + '" stroke-width="2" stroke-linecap="round"/><path d="M18.5 4.3l-.2 4.4 4.3-.6z" fill="' + COLOR_ICON + '" stroke="none"/>';
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" style="pointer-events:none">'
+      + arc
+      + '<text x="12" y="16" text-anchor="middle" font-size="9" font-family="-apple-system,BlinkMacSystemFont,Arial" font-weight="700" fill="' + COLOR_ICON + '" stroke="none">5</text>'
       + '</svg>';
   }
 
@@ -637,23 +638,28 @@
     requestElementFullscreen(container || target);
   }
 
-  // 角标：🔊 带声音（绿）/ 🔇 静音（红），常驻右下角标识按钮身份
-  function soundBadgeSVG() {
-    return '<span style="position:absolute;right:-1px;bottom:-1px;width:17px;height:17px;border-radius:50%;background:rgba(0,0,0,0.72);box-shadow:0 0 0 1.5px rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;pointer-events:none">'
-      + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="#3ddc6d" style="pointer-events:none"><path d="M3 9.5v5h3.5L11 19V5L6.5 9.5H3z"/><path d="M14.5 8.2a4.6 4.6 0 010 7.6" fill="none" stroke="#3ddc6d" stroke-width="2" stroke-linecap="round"/><path d="M16.8 5.6a8 8 0 010 12.8" fill="none" stroke="#3ddc6d" stroke-width="2" stroke-linecap="round"/></svg></span>';
+  // 完整喇叭图标（去角标）：带声音=绿喇叭+声波，静音=红喇叭+叉。两者同为 22px，重心居中。
+  function soundSVG() {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" style="pointer-events:none">'
+      + '<path d="M4 9v6h3.5L13 19.5V4.5L7.5 9H4z" fill="#3ddc6d" stroke="#3ddc6d" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<path d="M16 9a4.2 4.2 0 010 6" fill="none" stroke="#3ddc6d" stroke-width="2" stroke-linecap="round"/>'
+      + '<path d="M18.6 6.4a8 8 0 010 11.2" fill="none" stroke="#3ddc6d" stroke-width="2" stroke-linecap="round"/>'
+      + '</svg>';
   }
-  function muteBadgeSVG() {
-    return '<span style="position:absolute;right:-1px;bottom:-1px;width:17px;height:17px;border-radius:50%;background:rgba(0,0,0,0.72);box-shadow:0 0 0 1.5px rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;pointer-events:none">'
-      + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="#ff5b5b" style="pointer-events:none"><path d="M3 9.5v5h3.5L11 19V5L6.5 9.5H3z"/><line x1="14.5" y1="9" x2="20.5" y2="15" stroke="#ff5b5b" stroke-width="2.2" stroke-linecap="round"/><line x1="20.5" y1="9" x2="14.5" y2="15" stroke="#ff5b5b" stroke-width="2.2" stroke-linecap="round"/></svg></span>';
+  function muteSVG() {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" style="pointer-events:none">'
+      + '<path d="M4 9v6h3.5L13 19.5V4.5L7.5 9H4z" fill="#ff5b5b" stroke="#ff5b5b" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<line x1="16" y1="9.5" x2="21" y2="14.5" stroke="#ff5b5b" stroke-width="2.2" stroke-linecap="round"/>'
+      + '<line x1="21" y1="9.5" x2="16" y2="14.5" stroke="#ff5b5b" stroke-width="2.2" stroke-linecap="round"/>'
+      + '</svg>';
   }
 
-  // 根据当前播放状态 + 按钮身份(sound/mute) 渲染图标
+  // 根据按钮身份(sound/mute)渲染图标：带声音=绿喇叭，静音=红叉喇叭（固定，不随播放状态变）
   function renderBtn(btn, mode, playing) {
     if (!btn) return;
-    const want = (playing ? 'pause' : 'play') + ':' + mode;
-    if (btn.dataset.icon === want) return;
-    btn.dataset.icon = want;
-    btn.innerHTML = (playing ? pauseSVG() : playSVG()) + (mode === 'sound' ? soundBadgeSVG() : muteBadgeSVG());
+    if (btn.dataset.icon === mode) return;
+    btn.dataset.icon = mode;
+    btn.innerHTML = mode === 'sound' ? soundSVG() : muteSVG();
   }
   function syncIcons() {
     if (document.readyState === 'loading' && !document.querySelector('video')) {
