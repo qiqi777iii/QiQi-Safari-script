@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    qiqi777iii.videoplayer
-// @version      1.0.42
+// @version      1.0.43
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
-// @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.42 默认右边缘对齐悬浮翻页。
+// @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.43 修复刷新后按钮宽度变化导致右边缘未重锚定。
 // @match        *://*/*
 // @run-at       document-start
 // @grant        GM.getValue
@@ -26,7 +26,7 @@
   const PAGER_HEIGHT = 35;
   const DEFAULT_RIGHT = PAGER_RIGHT_GAP;
   const DEFAULT_BOTTOM = BOTTOM_GAP + PAGER_HEIGHT + STACK_GAP;
-  const CURRENT_LAYOUT_VERSION = '1.0.42';
+  const CURRENT_LAYOUT_VERSION = '1.0.43';
   const MIN_MAIN_VIDEO_W = 180;
   const MIN_MAIN_VIDEO_H = 120;
   const MIN_MAIN_VIDEO_AREA_RATIO = 0.12;
@@ -695,7 +695,16 @@
   function updateToolbarWidth() {
     if (!toolbar) return;
     const visibleButtons = [backBtn, soundBtn, muteBtn, forwardBtn, fullscreenBtn, prevPlaylistBtn, nextPlaylistBtn].filter((btn) => btn && btn.style.display !== 'none').length || 5;
-    toolbar.style.width = (BTN_SIZE * visibleButtons + INNER_GAP * Math.max(0, visibleButtons - 1)) + 'px';
+    const nextWidth = (BTN_SIZE * visibleButtons + INNER_GAP * Math.max(0, visibleButtons - 1)) + 'px';
+    if (toolbar.style.width === nextWidth) return;
+    toolbar.style.width = nextWidth;
+    if (!dragging) {
+      requestAnimationFrame(function () {
+        if (!toolbar || dragging) return;
+        if (savedPosition) applySavedPosition();
+        else applyDefaultPosition();
+      });
+    }
   }
 
   function isPmvHavenPlaylistPage() {
