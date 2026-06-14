@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    qiqi777iii.videoplayer
-// @version      1.0.49
+// @version      1.0.50
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
 // @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.47 喇叭改白色与其他按钮一致（右下叉=静音），进退 5 秒改环形回旋箭头+正中心并放大，全屏图标缩小。
@@ -579,7 +579,7 @@
     // 只保留居中文字 -5 / +5，去掉圆环。
     const label = dir < 0 ? '-5' : '+5';
     return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" style="pointer-events:none">'
-      + '<text x="12" y="12.5" text-anchor="middle" dominant-baseline="central" font-size="13" font-family="-apple-system,BlinkMacSystemFont,Arial" font-weight="700" fill="' + COLOR_ICON + '" stroke="none">' + label + '</text>'
+      + '<text x="12" y="12" text-anchor="middle" dominant-baseline="central" font-size="15" font-family="-apple-system,BlinkMacSystemFont,Arial" font-weight="700" fill="' + COLOR_ICON + '" stroke="none">' + label + '</text>'
       + '</svg>';
   }
 
