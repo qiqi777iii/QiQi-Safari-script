@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    qiqi777iii.videoplayer
-// @version      1.0.46
+// @version      1.0.47
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
-// @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.46 带声音/静音改为完整喇叭图标（去角标），进退 5 秒改为圆弧回旋箭头+居中5。
+// @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.47 喇叭改白色与其他按钮一致（右下叉=静音），进退 5 秒改环形回旋箭头+正中心并放大，全屏图标缩小。
 // @match        *://*/*
 // @run-at       document-start
 // @grant        GM.getValue
@@ -576,14 +576,14 @@
   }
 
   function seekSVG(dir) {
-    // 圆弧回旋箭头 + 居中数字 5：后退=逆时针，前进=顺时针。
-    // 弧线顶部留缺口，缺口处放箭头；数字 5 居中。
-    const arc = dir < 0
-      ? '<path d="M5.5 8.5A7 7 0 1 1 4.2 13.5" fill="none" stroke="' + COLOR_ICON + '" stroke-width="2" stroke-linecap="round"/><path d="M5.5 4.3l.2 4.4-4.3-.6z" fill="' + COLOR_ICON + '" stroke="none"/>'
-      : '<path d="M18.5 8.5A7 7 0 1 0 19.8 13.5" fill="none" stroke="' + COLOR_ICON + '" stroke-width="2" stroke-linecap="round"/><path d="M18.5 4.3l-.2 4.4 4.3-.6z" fill="' + COLOR_ICON + '" stroke="none"/>';
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" style="pointer-events:none">'
-      + arc
-      + '<text x="12" y="16" text-anchor="middle" font-size="9" font-family="-apple-system,BlinkMacSystemFont,Arial" font-weight="700" fill="' + COLOR_ICON + '" stroke="none">5</text>'
+    // 环形回旋箭头（Material replay/forward 路径）+ 正中心数字 5。
+    // 后退=箭头在左上（逆时针），前进=箭头在右上（顺时针）。
+    const ring = dir < 0
+      ? 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z'
+      : 'M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z';
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" style="pointer-events:none">'
+      + '<path d="' + ring + '" fill="' + COLOR_ICON + '"/>'
+      + '<text x="12" y="13" text-anchor="middle" dominant-baseline="central" font-size="8.5" font-family="-apple-system,BlinkMacSystemFont,Arial" font-weight="700" fill="' + COLOR_ICON + '" stroke="none">5</text>'
       + '</svg>';
   }
 
@@ -602,7 +602,7 @@
   }
 
   function fullscreenSVG() {
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="' + COLOR_ICON + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none">'
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="' + COLOR_ICON + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none">'
       + '<path d="M8 4H4v4"/><path d="M16 4h4v4"/><path d="M4 16v4h4"/><path d="M20 16v4h-4"/>'
       + '<path d="M9 9L4.8 4.8"/><path d="M15 9l4.2-4.2"/><path d="M9 15l-4.2 4.2"/><path d="M15 15l4.2 4.2"/>'
       + '</svg>';
@@ -638,19 +638,19 @@
     requestElementFullscreen(container || target);
   }
 
-  // 完整喇叭图标（去角标）：带声音=绿喇叭+声波，静音=红喇叭+叉。两者同为 22px，重心居中。
+  // 完整喇叭图标（去角标）：与其他按钮同用白色，靠右下叉区分静音。两者同为 22px。
   function soundSVG() {
     return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" style="pointer-events:none">'
-      + '<path d="M4 9v6h3.5L13 19.5V4.5L7.5 9H4z" fill="#3ddc6d" stroke="#3ddc6d" stroke-width="1.2" stroke-linejoin="round"/>'
-      + '<path d="M16 9a4.2 4.2 0 010 6" fill="none" stroke="#3ddc6d" stroke-width="2" stroke-linecap="round"/>'
-      + '<path d="M18.6 6.4a8 8 0 010 11.2" fill="none" stroke="#3ddc6d" stroke-width="2" stroke-linecap="round"/>'
+      + '<path d="M4 9v6h3.5L13 19.5V4.5L7.5 9H4z" fill="' + COLOR_ICON + '" stroke="' + COLOR_ICON + '" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<path d="M16 9a4.2 4.2 0 010 6" fill="none" stroke="' + COLOR_ICON + '" stroke-width="2" stroke-linecap="round"/>'
+      + '<path d="M18.6 6.4a8 8 0 010 11.2" fill="none" stroke="' + COLOR_ICON + '" stroke-width="2" stroke-linecap="round"/>'
       + '</svg>';
   }
   function muteSVG() {
     return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" style="pointer-events:none">'
-      + '<path d="M4 9v6h3.5L13 19.5V4.5L7.5 9H4z" fill="#ff5b5b" stroke="#ff5b5b" stroke-width="1.2" stroke-linejoin="round"/>'
-      + '<line x1="16" y1="9.5" x2="21" y2="14.5" stroke="#ff5b5b" stroke-width="2.2" stroke-linecap="round"/>'
-      + '<line x1="21" y1="9.5" x2="16" y2="14.5" stroke="#ff5b5b" stroke-width="2.2" stroke-linecap="round"/>'
+      + '<path d="M4 9v6h3.5L13 19.5V4.5L7.5 9H4z" fill="' + COLOR_ICON + '" stroke="' + COLOR_ICON + '" stroke-width="1.2" stroke-linejoin="round"/>'
+      + '<line x1="16" y1="9.5" x2="21" y2="14.5" stroke="' + COLOR_ICON + '" stroke-width="2.2" stroke-linecap="round"/>'
+      + '<line x1="21" y1="9.5" x2="16" y2="14.5" stroke="' + COLOR_ICON + '" stroke-width="2.2" stroke-linecap="round"/>'
       + '</svg>';
   }
 
