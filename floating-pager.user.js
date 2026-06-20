@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         悬浮翻页
 // @namespace    https://scripting.app/userscripts
-// @version      1.0.39
+// @version      1.0.40
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/floating-pager.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/floating-pager.user.js
-// @description  自动识别页面上一页/下一页，显示可拖动悬浮翻页菜单，并稳定记住菜单位置；v1.0.39 增大无翻页时刷新图标尺寸，与其他按钮更协调。
+// @description  自动识别页面上一页/下一页，显示可拖动悬浮翻页菜单，并稳定记住菜单位置；v1.0.40 悬浮窗纵向改锚定可视区域底边：底部标签栏隐藏时落到最底，标签栏出现时自动浮到其上方。
 // @author       Scripting Agent
 // @match        http://*/*
 // @match        https://*/*
@@ -1203,13 +1203,26 @@
     return SAFE_BOTTOM_GAP + (isNodeSeek() ? NODESEEK_BOTTOM_EXTRA : 0);
   }
 
+  // 当前真正可见区域的底边（布局视口坐标）。
+  // 底部标签栏/地址栏出现时 visualViewport 从底部收缩，offsetTop+height 即可见底边；
+  // 标签栏隐藏时 height 恢复，底边随之下移。悬浮窗以此为锚，就能“出现时浮到标签栏上方，
+  // 隐藏时落回最底”。
+  function getVisibleBottom() {
+    const vv = window.visualViewport;
+    const layoutHeight = document.documentElement.clientHeight || innerHeight || 0;
+    if (vv && vv.height) {
+      return Math.floor((vv.offsetTop || 0) + vv.height);
+    }
+    return Math.floor(layoutHeight || innerHeight || 0);
+  }
+
   function applyDefaultMenuPosition(box) {
     if (!box) return;
     const viewport = getViewportBox();
     const width = box.offsetWidth || (box.dataset.pagination === "false" ? PAGER_ITEM_SIZE : FALLBACK_PAGER_WIDTH);
     const height = box.offsetHeight || PAGER_ITEM_SIZE;
     const left = viewport.width - width - DEFAULT_RIGHT_GAP;
-    const top = viewport.height - height - getDefaultBottomGap();
+    const top = getVisibleBottom() - height - getDefaultBottomGap();
     box.style.left = `${Math.max(0, Math.floor(left))}px`;
     box.style.top = `${Math.max(0, Math.floor(top))}px`;
     box.style.right = "auto";
@@ -1231,9 +1244,11 @@
     const viewport = getViewportBox();
     const width = Math.max(box?.offsetWidth || 0, 34);
     const height = Math.max(box?.offsetHeight || 0, 34);
+    // 纵向上界用“可见底边”，标签栏出现时把按钮顶到其上方，隐藏时落回最底。
+    const maxTop = getVisibleBottom() - height - SAFE_BOTTOM_GAP;
     return {
       left: Math.max(0, Math.min(left, viewport.width - width)),
-      top: Math.max(0, Math.min(top, viewport.height - height - SAFE_BOTTOM_GAP)),
+      top: Math.max(0, Math.min(top, maxTop)),
     };
   }
 
