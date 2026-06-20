@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         新标签页打开
-// @version      1.0.32
+// @version      1.0.35
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/new-tab-opener.user.js
-// @description  🔗 单按钮浮动工具，柔和小玻璃底 + SVG 链接图标：开启=绿色，关闭=红色描边，一键切换新标签页开关。v1.0.32 修复 iOS Safari 滚动后浮动按钮漂移。
+// @description  🔗 单按钮浮动工具，柔和小玻璃底 + SVG 链接图标：开启=绿色，关闭=红色描边，一键切换新标签页开关。v1.0.34 增加 rule34video 视频卡片防误触两段式打开。v1.0.35 默认位置纵向改 CSS 贴底锚定，修复长页面按钮跑到屏幕中间。
 // @match        *://*/*
 // @grant        GM.registerMenuCommand
 // @run-at       document-start
@@ -75,7 +75,7 @@
         document.querySelectorAll('a[href]').forEach(function (a) {
             const href = a.getAttribute('href') || '';
             const isHttp = a.href.slice(0, 4) === 'http';
-            const keepSelf = !isHttp || href[0] === '#' || isPmvHavenVideoLink(a) || isMissAvNavLink(a) || isMissAvPreviewLink(a);
+            const keepSelf = !isHttp || href[0] === '#' || isPmvHavenVideoLink(a) || isRule34VideoLink(a) || isMissAvNavLink(a) || isMissAvPreviewLink(a);
             a.target = keepSelf || !enabled ? '_self' : '_blank';
             if (enabled && !keepSelf) a.rel = 'noopener';
         });
@@ -175,6 +175,35 @@
         return false;
     }
 
+    function isRule34VideoHost(hostname) {
+        return /(^|\.)rule34video\.com$/i.test(hostname || '');
+    }
+
+    function isRule34VideoLink(link) {
+        // rule34video 视频卡片：开启新标签页时用两段式打开，避免滚动/点封面时误进视频页。
+        if (!link || !isRule34VideoHost(location.hostname)) return false;
+        let url;
+        try { url = new URL(link.href, location.href); } catch (_) { return false; }
+        if (!isRule34VideoHost(url.hostname)) return false;
+        if (/^\/(?:video|videos)\//i.test(url.pathname)) return true;
+        const card = link.closest?.('[class*=video], [class*=thumb], [class*=item], article, li');
+        return Boolean(card?.querySelector?.('video, img, picture, [class*=thumb], [class*=preview], [class*=poster], [class*=cover]'));
+    }
+
+    function isRule34VideoThumbTap(e, link) {
+        if (!e || !isRule34VideoLink(link)) return false;
+        const point = getEventPoint(e);
+        const card = link.closest?.('[class*=video], [class*=thumb], [class*=item], article, li') || link;
+        const media = card.querySelector?.('video, img, picture, [class*=thumb], [class*=preview], [class*=poster], [class*=cover]');
+        if (media) {
+            const rect = media.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) return isInRect(point, rect, 8);
+        }
+        const rect = link.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) return point.y <= rect.top + rect.height * 0.72;
+        return true;
+    }
+
     let pmvHavenArmedHref = '';
     let pmvHavenArmedAt = 0;
     let pmvHavenLastInteractHref = '';
@@ -185,6 +214,17 @@
     let pmvHavenPointerDownX = 0;
     let pmvHavenPointerDownY = 0;
     let pmvHavenPointerDownHref = '';
+
+    let rule34VideoArmedHref = '';
+    let rule34VideoArmedAt = 0;
+    let rule34VideoLastInteractHref = '';
+    let rule34VideoLastInteractAt = 0;
+    const RULE34VIDEO_REARM_MS = 4000;
+    const RULE34VIDEO_DEBOUNCE_MS = 600;
+    const RULE34VIDEO_MOVE_TOLERANCE = 12;
+    let rule34VideoPointerDownX = 0;
+    let rule34VideoPointerDownY = 0;
+    let rule34VideoPointerDownHref = '';
 
     function handlePmvHavenPreviewInteract(e, link) {
         const href = link.href || '';
@@ -228,6 +268,53 @@
         pmvHavenArmedHref = href;
         pmvHavenArmedAt = now;
         e.preventDefault();
+    }
+
+    function handleRule34VideoThumbInteract(e, link) {
+        const href = link.href || '';
+        if (!href) return;
+        const now = Date.now();
+
+        // pointerup/touchend/click 会连续触发；只把 click 算作一次 tap，前置事件只阻止通用打开逻辑。
+        if (e.type !== 'click') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+        }
+
+        // 列表滑动后落在卡片上的 click 不算点击，避免滚动时误开视频。
+        if (rule34VideoPointerDownHref === href) {
+            const p = getEventPoint(e);
+            if (Math.abs(p.x - rule34VideoPointerDownX) > RULE34VIDEO_MOVE_TOLERANCE || Math.abs(p.y - rule34VideoPointerDownY) > RULE34VIDEO_MOVE_TOLERANCE) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                return;
+            }
+        }
+
+        if (href === rule34VideoLastInteractHref && now - rule34VideoLastInteractAt < RULE34VIDEO_DEBOUNCE_MS) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+        }
+        rule34VideoLastInteractHref = href;
+        rule34VideoLastInteractAt = now;
+
+        // 第二次点同一个视频封面：才新标签页打开。
+        if (href === rule34VideoArmedHref && now - rule34VideoArmedAt < RULE34VIDEO_REARM_MS) {
+            rule34VideoArmedHref = '';
+            rule34VideoArmedAt = 0;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            window.open(href, '_blank');
+            return;
+        }
+
+        // 第一次点封面：只进入待确认状态，不跳转。
+        rule34VideoArmedHref = href;
+        rule34VideoArmedAt = now;
+        e.preventDefault();
+        e.stopImmediatePropagation();
     }
 
     function isMissAvPreviewPage() {
@@ -359,8 +446,24 @@
         pmvHavenPointerDownHref = a.href || '';
     }
 
+    function handleRule34VideoPointerDown(e) {
+        const a = findLinkTarget(e.target);
+        if (!enabled || !a || !isRule34VideoThumbTap(e, a)) return;
+        const p = getEventPoint(e);
+        rule34VideoPointerDownX = p.x;
+        rule34VideoPointerDownY = p.y;
+        rule34VideoPointerDownHref = a.href || '';
+    }
+
+    function handlePreviewPointerDown(e) {
+        handlePmvHavenPointerDown(e);
+        handleRule34VideoPointerDown(e);
+    }
+
     function shouldOpenNewTab(a, e) {
         if (!enabled || !a) return false;
+        if (isPmvHavenPreviewTap(e, a)) return false;
+        if (isRule34VideoThumbTap(e, a)) return false;
         if (isMissAvPreviewTap(e, a)) return false;
         if (isMissAvNavLink(a)) return false;
         const href = a.getAttribute('href') || '';
@@ -373,6 +476,11 @@
         // PMVHaven 视频卡片封面区：首次 tap 交给站点原生预览，二次 tap 新标签页打开
         if (enabled && a && isPmvHavenPreviewTap(e, a)) {
             handlePmvHavenPreviewInteract(e, a);
+            return;
+        }
+        // rule34video 视频卡片封面区：首次 tap 只确认，二次 tap 新标签页打开，避免误触进视频。
+        if (enabled && a && isRule34VideoThumbTap(e, a)) {
+            handleRule34VideoThumbInteract(e, a);
             return;
         }
         // eporner 缩略图两段式：pointerup/touchend/click 都进同一去抖状态机
@@ -474,23 +582,26 @@
     // 若悬浮翻页尚未创建，则使用保守 right/bottom 兜底，避免压到胶囊。
     function applyDefaultPosition() {
         if (!toolbar) return;
-        const vv = getVisualViewportRect();
+        const viewport = getViewportBox();
         const pager = document.getElementById(PAGER_ID);
+        // 纵向用 CSS bottom 锚定贴底（不换算绝对 top），避免 iOS Safari 地址栏伸缩时
+        // viewport.height 取到偏大的布局视口高度，把按钮顶到屏幕中间。
+        const defaultRightLeft = Math.max(0, Math.floor(viewport.width - BTN_SIZE - DEFAULT_RIGHT));
         if (pager) {
             const rect = pager.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
                 const pos = clampPos(rect.left - LINK_PAGER_GAP - BTN_SIZE, 0);
                 toolbar.style.left = pos.left + 'px';
-                toolbar.style.top = Math.max(0, Math.floor(vv.top + vv.height - BTN_SIZE - DEFAULT_BOTTOM)) + 'px';
+                toolbar.style.bottom = DEFAULT_BOTTOM + 'px';
                 toolbar.style.right = 'auto';
-                toolbar.style.bottom = 'auto';
+                toolbar.style.top = 'auto';
                 return;
             }
         }
-        toolbar.style.left = Math.max(0, Math.floor(vv.left + vv.width - BTN_SIZE - DEFAULT_RIGHT)) + 'px';
-        toolbar.style.top = Math.max(0, Math.floor(vv.top + vv.height - BTN_SIZE - DEFAULT_BOTTOM)) + 'px';
+        toolbar.style.left = defaultRightLeft + 'px';
+        toolbar.style.bottom = DEFAULT_BOTTOM + 'px';
         toolbar.style.right = 'auto';
-        toolbar.style.bottom = 'auto';
+        toolbar.style.top = 'auto';
     }
 
     function syncDefaultPosition() {
@@ -726,8 +837,8 @@
         runWhenIdle(function () { if (enabled) scheduleScanBurst(); }, 800);
     }
 
-    document.addEventListener('pointerdown', handlePmvHavenPointerDown, true);
-    document.addEventListener('touchstart', handlePmvHavenPointerDown, { capture: true, passive: true });
+    document.addEventListener('pointerdown', handlePreviewPointerDown, true);
+    document.addEventListener('touchstart', handlePreviewPointerDown, { capture: true, passive: true });
     document.addEventListener('touchend', handleLinkOpen, { capture: true, passive: false });
     document.addEventListener('pointerup', handleLinkOpen, true);
     document.addEventListener('click', handleLinkOpen, true);

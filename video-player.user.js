@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    qiqi777iii.videoplayer
-// @version      1.0.50
+// @version      1.0.51
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/video-player.user.js
-// @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.47 喇叭改白色与其他按钮一致（右下叉=静音），进退 5 秒改环形回旋箭头+正中心并放大，全屏图标缩小。
+// @description  柔和小玻璃底悬浮图标：只在页面检测到视频/播放器时显示；智能播放/暂停当前页视频。支持进退 5 秒、全屏、拖动记位和常见网页播放器。v1.0.47 喇叭改白色与其他按钮一致（右下叉=静音），进退 5 秒改环形回旋箭头+正中心并放大，全屏图标缩小。v1.0.51 默认位置纵向改 CSS 贴底锚定，修复长页面按钮跑到屏幕中间。
 // @match        *://*/*
 // @run-at       document-start
 // @grant        GM.getValue
@@ -1238,10 +1238,11 @@
     if (!toolbar) return;
     const viewport = getViewportBox();
     const width = currentToolbarWidth();
+    // 纵向用 CSS bottom 锚定贴底，避免 iOS Safari 地址栏伸缩时被顶到中间。
     toolbar.style.left = Math.max(0, Math.floor(viewport.width - width - DEFAULT_RIGHT)) + 'px';
-    toolbar.style.top = Math.max(0, Math.floor(viewport.height - BTN_SIZE - DEFAULT_BOTTOM)) + 'px';
+    toolbar.style.bottom = DEFAULT_BOTTOM + 'px';
     toolbar.style.right = 'auto';
-    toolbar.style.bottom = 'auto';
+    toolbar.style.top = 'auto';
     toolbar.style.transform = toolbarVisible ? 'scale(1)' : 'scale(0.9)';
   }
 
