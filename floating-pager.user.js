@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         悬浮翻页
 // @namespace    https://scripting.app/userscripts
-// @version      1.0.40
+// @version      1.0.41
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/floating-pager.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/floating-pager.user.js
-// @description  自动识别页面上一页/下一页，显示可拖动悬浮翻页菜单，并稳定记住菜单位置；v1.0.40 默认位置改用 CSS 贴底锚定，修复长页面上按钮跑到屏幕中间。
+// @description  自动识别页面上一页/下一页，显示可拖动悬浮翻页菜单，并稳定记住菜单位置；v1.0.41 修复 whos.tv /frames/.../page-N 分类页翻页。
 // @author       Scripting Agent
 // @match        http://*/*
 // @match        https://*/*
@@ -182,6 +182,11 @@
 
     if (isNodeSeek()) {
       const siteCandidate = findNodeSeekCandidate(direction);
+      if (siteCandidate) return siteCandidate;
+    }
+
+    if (isWhosTv()) {
+      const siteCandidate = findWhosTvCandidate(direction);
       if (siteCandidate) return siteCandidate;
     }
 
@@ -786,6 +791,7 @@
     if (isXVideos()) return makeXVideosPageUrl(targetPage);
 
     if (isNodeSeek()) return makeNodeSeekPageUrl(targetPage);
+    if (isWhosTv()) return makeWhosTvPageUrl(targetPage);
 
     if (isRule34Video()) {
       const ajaxLink = findRule34AjaxPageLink(targetPage);
@@ -988,6 +994,11 @@
       if (sitePage) return sitePage;
     }
 
+    if (isWhosTv()) {
+      const sitePage = getWhosTvCurrentPage();
+      if (sitePage) return sitePage;
+    }
+
     const fromUrl = pageFromUrl();
     if (fromUrl) return fromUrl;
 
@@ -1179,6 +1190,58 @@
     if (link) return link;
 
     const url = makeNodeSeekPageUrl(target);
+    return url ? { __paginationUrl: url } : null;
+  }
+
+  function isWhosTv() {
+    return /(^|\.)whos\.tv$/i.test(location.hostname);
+  }
+
+  function isWhosTvFramesListPage() {
+    if (!isWhosTv()) return false;
+    return /^\/frames\/(?:type-[^/]+|tags|tag-[^/]+|label-\d+)(?:\/[^/]+)*(?:\/page-\d+)?\/?$/i.test(location.pathname);
+  }
+
+  function getWhosTvCurrentPage() {
+    if (!isWhosTvFramesListPage()) return "";
+    const match = location.pathname.match(/\/page-0*(\d{1,5})\/?$/i);
+    return match ? String(parseInt(match[1], 10)) : "1";
+  }
+
+  function makeWhosTvPageUrl(targetPage) {
+    targetPage = parseInt(targetPage, 10);
+    if (!isWhosTvFramesListPage() || !Number.isFinite(targetPage) || targetPage < 1) return "";
+    const url = new URL(location.href);
+    const base = url.pathname.replace(/\/page-\d+\/?$/i, "").replace(/\/+$/g, "");
+    url.pathname = targetPage <= 1 ? base : `${base}/page-${targetPage}`;
+    url.search = "";
+    url.hash = "";
+    return url.href;
+  }
+
+  function findWhosTvPageLink(targetPage) {
+    targetPage = parseInt(targetPage, 10);
+    if (!isWhosTvFramesListPage() || !Number.isFinite(targetPage) || targetPage < 1) return null;
+    for (const el of $$('a[href]')) {
+      if (!visible(el) || disabled(el)) continue;
+      const href = el.getAttribute("href") || "";
+      if (!/\/frames\//i.test(href) || !/\/page-\d+/i.test(href)) continue;
+      const page = parseInt(pageFromUrl(el.href) || elementPageNumber(el) || "", 10);
+      if (page === targetPage) return el;
+    }
+    return null;
+  }
+
+  function findWhosTvCandidate(direction) {
+    if (!isWhosTvFramesListPage()) return null;
+    const current = parseInt(getWhosTvCurrentPage() || "1", 10);
+    const target = current + (direction === "next" ? 1 : -1);
+    if (!Number.isFinite(target) || target < 1) return null;
+
+    const link = findWhosTvPageLink(target);
+    if (link) return link;
+
+    const url = makeWhosTvPageUrl(target);
     return url ? { __paginationUrl: url } : null;
   }
 
