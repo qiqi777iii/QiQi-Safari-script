@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         新标签页打开
-// @version      1.0.35
+// @version      1.0.36
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/QiQi-Safari-script/main/new-tab-opener.user.js
-// @description  🔗 单按钮浮动工具，柔和小玻璃底 + SVG 链接图标：开启=绿色，关闭=红色描边，一键切换新标签页开关。v1.0.34 增加 rule34video 视频卡片防误触两段式打开。v1.0.35 默认位置纵向改 CSS 贴底锚定，修复长页面按钮跑到屏幕中间。
+// @description  🔗 单按钮浮动工具，柔和小玻璃底 + SVG 链接图标：开启=绿色，关闭=红色描边，一键切换新标签页开关。v1.0.36 通用链接改为 click 阶段打开并增加滑动位移保护，减少开启后滑动列表误触。
 // @match        *://*/*
 // @grant        GM.registerMenuCommand
 // @run-at       document-start
@@ -41,6 +41,10 @@
     let startX = 0, startY = 0, startLeft = 0, startTop = 0;
     let lastOpenedHref = '';
     let lastOpenedAt = 0;
+    let genericLinkPointerDownX = 0;
+    let genericLinkPointerDownY = 0;
+    let genericLinkPointerDownHref = '';
+    const GENERIC_LINK_MOVE_TOLERANCE = 12;
 
     function getVal(key, def) {
         try {
@@ -368,6 +372,23 @@
         return point.x >= rect.left - gap && point.x <= rect.right + gap && point.y >= rect.top - gap && point.y <= rect.bottom + gap;
     }
 
+    function recordGenericLinkPointerDown(e) {
+        if (!enabled || toolbar?.contains(e.target)) return;
+        const a = findLinkTarget(e.target);
+        if (!a) return;
+        const p = getEventPoint(e);
+        genericLinkPointerDownX = p.x;
+        genericLinkPointerDownY = p.y;
+        genericLinkPointerDownHref = a.href || '';
+    }
+
+    function isGenericLinkScrollGesture(e, a) {
+        const href = a?.href || '';
+        if (!href || genericLinkPointerDownHref !== href) return false;
+        const p = getEventPoint(e);
+        return Math.abs(p.x - genericLinkPointerDownX) > GENERIC_LINK_MOVE_TOLERANCE || Math.abs(p.y - genericLinkPointerDownY) > GENERIC_LINK_MOVE_TOLERANCE;
+    }
+
     function isMissAvPreviewTap(e, link) {
         if (!e || !link || !isMissAvPreviewLink(link)) return false;
 
@@ -456,6 +477,7 @@
     }
 
     function handlePreviewPointerDown(e) {
+        recordGenericLinkPointerDown(e);
         handlePmvHavenPointerDown(e);
         handleRule34VideoPointerDown(e);
     }
@@ -490,6 +512,15 @@
             return;
         }
         if (!shouldOpenNewTab(a, e)) return;
+
+        // 通用链接只在 click 阶段主动打开；pointerup/touchend 过早打开会把滑动列表的抬手误判为点击。
+        // 若按下到抬起/点击位移明显，直接吞掉，避免开启后滑动页面时误开链接。
+        if (isGenericLinkScrollGesture(e, a)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+        }
+        if (e.type !== 'click') return;
 
         const now = Date.now();
         if (a.href === lastOpenedHref && now - lastOpenedAt < 700) {
