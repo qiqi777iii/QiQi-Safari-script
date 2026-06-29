@@ -1,31 +1,29 @@
 {
-  "localizedDescriptions" : {
-    "zh" : "从分享表把网页收藏到分组，稍后在脚本里查看和打开。"
+  "color": "rgba(10, 132, 255, 1)",
+  "remoteResource": {
+    "url": "https://github.com/qiqi777iii/QiQi-Safari-script/tree/main/scripts/Tab",
+    "autoUpdateInterval": 600
   },
-  "name" : "Tab",
-  "intentInputTypes" : [
+  "contributors": [],
+  "name": "Tab",
+  "runInApp": false,
+  "entry": "index.tsx",
+  "author": null,
+  "iconImage": null,
+  "localizedDescriptions": {
+    "zh": "从分享表把网页收藏到分组，稍后在脚本里查看和打开。"
+  },
+  "version": "1.2.5",
+  "icon": "bookmark.fill",
+  "localizedNames": {
+    "zh": "标签页收藏"
+  },
+  "description": "Save web pages from the share sheet into groups and browse them later.",
+  "intentInputTypes": [
     "urls",
     "texts",
     "Text",
     "URLs"
   ],
-  "iconImage" : null,
-  "localizedNames" : {
-    "zh" : "标签页收藏"
-  },
-  "contributors" : [
-
-  ],
-  "icon" : "bookmark.fill",
-  "entry" : "index.tsx",
-  "version" : "1.2.4",
-  "permissions" : null,
-  "runInApp" : false,
-  "description" : "Save web pages from the share sheet into groups and browse them later.",
-  "remoteResource" : {
-    "url" : "https://github.com/qiqi777iii/QiQi-Safari-script/tree/main/scripts/Tab",
-    "autoUpdateInterval" : 600
-  },
-  "color" : "rgba(10, 132, 255, 1)",
-  "author" : null
+  "permissions": null
 }
