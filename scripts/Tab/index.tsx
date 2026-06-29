@@ -115,10 +115,19 @@ type DaySection = { key: number; label: string; items: Bookmark[] }
 const GROUP_SEPARATOR_KEY = "tab.showGroupSeparators"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.2.4"
+const APP_VERSION = "1.2.5"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.2.5",
+    date: "2026-06-29",
+    items: [
+      "GitHub/iCloud 历史版本页支持多选删除。",
+      "历史快照页右上角新增多选按钮，底部可全选、查看已选数量并批量删除。",
+      "刷新历史列表时会自动清理已不存在的选择，避免误操作当前本机或当前云端版本。",
+    ],
+  },
   {
     version: "1.2.4",
     date: "2026-06-15",
@@ -922,6 +931,8 @@ function VersionHistoryView({ provider }: { provider: "github" | "icloud" }) {
   const [local, setLocal] = useState<CloudBackup | null>(null)
   const [current, setCurrent] = useState<CloudBackup | null>(null)
   const [backups, setBackups] = useState<CloudBackup[]>([])
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
 
   const providerName = provider === "github" ? "GitHub" : "iCloud"
   const currentName = provider === "github" ? "当前云端" : "当前 iCloud"
@@ -938,6 +949,7 @@ function VersionHistoryView({ provider }: { provider: "github" | "icloud" }) {
     setLocal(localVersion)
     setCurrent(currentVersion)
     setBackups(history)
+    setSelected(selected.filter(path => history.some((backup: CloudBackup) => backup.path === path)))
     setLoading(false)
   }
 
@@ -987,6 +999,33 @@ function VersionHistoryView({ provider }: { provider: "github" | "icloud" }) {
     await reloadVersions()
   }
 
+  function toggleSelect(path: string) {
+    setSelected(
+      selected.includes(path)
+        ? selected.filter(x => x !== path)
+        : [...selected, path],
+    )
+  }
+
+  function enterSelect() {
+    setSelected([])
+    setSelecting(true)
+  }
+
+  function exitSelect() {
+    setSelecting(false)
+    setSelected([])
+  }
+
+  function selectAll() {
+    if (backups.length === 0) return
+    if (selected.length === backups.length) {
+      setSelected([])
+    } else {
+      setSelected(backups.map((backup: CloudBackup) => backup.path))
+    }
+  }
+
   async function deleteVersion(version: CloudBackup) {
     const ok = await Dialog.confirm({
       title: `删除 ${version.name}？`,
@@ -1005,10 +1044,69 @@ function VersionHistoryView({ provider }: { provider: "github" | "icloud" }) {
     if (deleted.ok) await reloadVersions()
   }
 
+  async function deleteSelectedVersions() {
+    if (selected.length === 0) return
+    const selectedVersions = backups.filter((backup: CloudBackup) => selected.includes(backup.path))
+    if (selectedVersions.length === 0) {
+      exitSelect()
+      return
+    }
+
+    const ok = await Dialog.confirm({
+      title: `删除 ${selectedVersions.length} 个历史版本？`,
+      message: "只删除选中的历史快照，不会影响当前本机或当前云端。此操作无法撤销。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
+    })
+    if (!ok) return
+
+    setBusy(true)
+    let successCount = 0
+    const failedNames: string[] = []
+    const failedPaths: string[] = []
+    for (const version of selectedVersions) {
+      const deleted = provider === "github"
+        ? await deleteCloudBackup(version.path, version.sha)
+        : await deleteICloudBackup(version.path)
+      if (deleted.ok) {
+        successCount += 1
+      } else {
+        failedPaths.push(version.path)
+        failedNames.push(`${version.name}：${deleted.message}`)
+      }
+    }
+    setBusy(false)
+    await reloadVersions()
+    if (failedNames.length === 0) {
+      exitSelect()
+      await Dialog.alert({ title: "已删除", message: `已删除 ${successCount} 个历史版本。` })
+    } else {
+      setSelected(failedPaths)
+      await Dialog.alert({
+        title: successCount > 0 ? "部分删除失败" : "删除失败",
+        message: `已删除 ${successCount} 个，失败 ${failedNames.length} 个。\n\n${failedNames.slice(0, 5).join("\n")}${failedNames.length > 5 ? "\n…" : ""}`,
+      })
+    }
+  }
+
+  const allSelected = backups.length > 0 && selected.length === backups.length
+
   function versionRow(version: CloudBackup, icon: string, color: any, deletable = false) {
+    const isSel = selected.includes(version.path)
     return (
-      <HStack key={version.path}>
-        <Button action={() => restoreVersion(version)} buttonStyle="plain">
+      <HStack key={version.path} spacing={10} alignment="center">
+        {selecting && deletable ? (
+          <Image
+            systemName={isSel ? "checkmark.circle.fill" : "circle"}
+            foregroundStyle={isSel ? "systemRed" : "systemGray3"}
+            font="title3"
+          />
+        ) : null}
+        <Button
+          action={() => selecting && deletable ? toggleSelect(version.path) : restoreVersion(version)}
+          buttonStyle="plain"
+          disabled={selecting && !deletable}
+        >
           <HStack>
             <Image systemName={icon} foregroundStyle={color} font="title3" />
             <VStack alignment="leading" spacing={3}>
@@ -1018,11 +1116,11 @@ function VersionHistoryView({ provider }: { provider: "github" | "icloud" }) {
           </HStack>
         </Button>
         <Spacer />
-        {deletable ? (
+        {deletable && !selecting ? (
           <Button action={() => deleteVersion(version)} buttonStyle="plain">
             <Image systemName="trash" foregroundStyle="systemRed" font="body" />
           </Button>
-        ) : (
+        ) : selecting && deletable ? null : (
           <Image systemName="chevron.right" foregroundStyle="tertiaryLabel" font="footnote" />
         )}
       </HStack>
@@ -1034,9 +1132,87 @@ function VersionHistoryView({ provider }: { provider: "github" | "icloud" }) {
       <List
         navigationTitle={`${providerName} 历史版本`}
         navigationBarTitleDisplayMode="inline"
+        safeAreaInset={
+          selecting
+            ? {
+                bottom: {
+                  content: (
+                    <HStack padding={{ horizontal: 16 }}>
+                      <HStack
+                        spacing={0}
+                        padding={{ horizontal: 10, vertical: 8 }}
+                        glassEffect={{
+                          glass: UIGlass.regular(),
+                          shape: { type: "capsule", style: "continuous" },
+                        }}
+                      >
+                        <Button
+                          action={selectAll}
+                          frame={{ maxWidth: "infinity" }}
+                          disabled={backups.length === 0 || busy}
+                        >
+                          <VStack spacing={3}>
+                            <Image
+                              systemName={allSelected ? "checkmark.circle.fill" : "checkmark.circle"}
+                              font="title3"
+                              foregroundStyle={backups.length === 0 ? "systemGray3" : "label"}
+                            />
+                            <Text
+                              font="caption2"
+                              foregroundStyle={backups.length === 0 ? "systemGray3" : "label"}
+                            >
+                              {allSelected ? "取消" : "全选"}
+                            </Text>
+                          </VStack>
+                        </Button>
+                        <VStack spacing={3} frame={{ maxWidth: "infinity" }}>
+                          <Image systemName="checklist" font="title3" foregroundStyle="secondaryLabel" />
+                          <Text font="caption2" foregroundStyle="secondaryLabel">
+                            {`已选 ${selected.length}`}
+                          </Text>
+                        </VStack>
+                        <Button
+                          disabled={selected.length === 0 || busy}
+                          action={deleteSelectedVersions}
+                          frame={{ maxWidth: "infinity" }}
+                        >
+                          <VStack spacing={3}>
+                            <Image
+                              systemName="trash"
+                              font="title3"
+                              foregroundStyle={selected.length === 0 || busy ? "systemGray3" : "systemRed"}
+                            />
+                            <Text
+                              font="caption2"
+                              foregroundStyle={selected.length === 0 || busy ? "systemGray3" : "systemRed"}
+                            >
+                              删除
+                            </Text>
+                          </VStack>
+                        </Button>
+                      </HStack>
+                    </HStack>
+                  ),
+                },
+              }
+            : undefined
+        }
         toolbar={{
-          cancellationAction: <Button title="关闭" action={() => dismiss()} />,
-          topBarTrailing: <Button title="刷新" action={reloadVersions} />,
+          cancellationAction: selecting ? undefined : <Button title="关闭" action={() => dismiss()} />,
+          topBarTrailing: selecting ? (
+            <Button action={exitSelect} disabled={busy}>
+              <Image systemName="xmark.circle.fill" foregroundStyle="systemRed" font="title2" />
+            </Button>
+          ) : backups.length > 0 ? (
+            <HStack>
+              <Button action={enterSelect} disabled={loading || busy}>
+                <Image systemName="checkmark.circle" foregroundStyle="label" font="title2" />
+              </Button>
+              <Button title="刷新" action={reloadVersions} />
+            </HStack>
+          ) : (
+            <Button title="刷新" action={reloadVersions} />
+          ),
         }}
       >
         {loading ? (
