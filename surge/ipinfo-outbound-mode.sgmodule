@@ -1,0 +1,7 @@
+#!name=IPInfo 出口自动模式
+#!desc=网络变化后通过 ipinfo 检查 DIRECT 出口；中国 IP 使用规则模式，非中国 IP 使用直接连接。
+#!author=qiqi777iii
+#!homepage=https://github.com/qiqi777iii/Scripts
+
+[Script]
+IPInfo 出口自动模式 = type=event,event-name=network-changed,script-path=https://raw.githubusercontent.com/qiqi777iii/Scripts/main/surge/ipinfo-outbound-mode.js,timeout=45,engine=jsc
