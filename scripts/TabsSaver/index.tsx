@@ -1089,7 +1089,7 @@ function VersionHistoryView() {
   }
 
   async function deleteSelectedVersions() {
-    if (selected.length === 0) return
+    if (busy || selected.length === 0) return
     const selectedVersions = backups.filter((backup: CloudBackup) => selected.includes(backup.path))
     if (selectedVersions.length === 0) {
       exitSelect()
@@ -1214,7 +1214,6 @@ function VersionHistoryView() {
                           </Text>
                         </VStack>
                         <Button
-                          disabled={selected.length === 0 || busy}
                           action={deleteSelectedVersions}
                           frame={{ maxWidth: "infinity" }}
                         >
