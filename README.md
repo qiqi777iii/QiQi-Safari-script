@@ -17,7 +17,7 @@
 
 | 模块 | 功能 | 安装 |
 | --- | --- | --- |
-| [IPInfo 出口自动模式](surge/ipinfo-outbound-mode.sgmodule) | 网络变化后检查 DIRECT 出口；中国 IP 切换为规则模式，非中国 IP 切换为直接连接。 | [安装 / 更新](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/surge/ipinfo-outbound-mode.sgmodule) |
+| [根据出口IP切换出站模式](surge/ipinfo-outbound-mode.sgmodule) | 网络变化后检查 DIRECT 出口；中国 IP 切换为规则模式，非中国 IP 切换为直接连接。 | [安装 / 更新](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/surge/ipinfo-outbound-mode.sgmodule) |
 
 ## Scripting App 脚本包
 
