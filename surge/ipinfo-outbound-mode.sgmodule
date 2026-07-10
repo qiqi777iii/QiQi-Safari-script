@@ -1,6 +1,6 @@
 #!name=IPInfo 出口自动模式
 #!desc=网络变化后通过 ipinfo 检查 DIRECT 出口；中国 IP 使用规则模式，非中国 IP 使用直接连接。
-#!author=qiqi777iii
+#!author=Qi Qi
 #!homepage=https://github.com/qiqi777iii/Scripts
 
 [Script]
