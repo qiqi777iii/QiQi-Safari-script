@@ -1,8 +1,8 @@
 # Scripts
 
-用于集中维护和分发 Safari userscript、Surge 模块与 Scripting App 脚本包。
+用于集中维护和分发 userscript、Surge 模块与 Scripting App 脚本包。
 
-## Safari userscript
+## Userscript
 
 | 脚本 | 功能 | 安装 |
 | --- | --- | --- |
