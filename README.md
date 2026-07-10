@@ -19,3 +19,4 @@
 | --- | --- | --- |
 | Claude额度 | 查看 Claude 使用额度。 | [打开脚本包](https://github.com/qiqi777iii/QiQi-Safari-script/tree/main/scripts/Claude%E9%A2%9D%E5%BA%A6) |
 | Codex额度 | 查看 Codex 使用额度。 | [打开脚本包](https://github.com/qiqi777iii/QiQi-Safari-script/tree/main/scripts/Codex%E9%A2%9D%E5%BA%A6) |
+| 标签页收藏 | 收藏与分组管理 Safari 标签页，并通过 WebDAV 同步和恢复历史快照。 | [打开脚本包](https://github.com/qiqi777iii/QiQi-Safari-script/tree/main/scripts/TabsSaver) |
