@@ -1,0 +1,17 @@
+{
+  "name": "IP查询",
+  "icon": "network",
+  "color": "#007AFF",
+  "version": "1.0.0",
+  "remoteResource": {
+    "url": "https://github.com/qiqi777iii/Scripts/tree/main/scripts/IPQuery"
+  },
+  "runInApp": false,
+  "description": "Query current and specified IP information from IPLark.",
+  "localizedNames": {
+    "zh": "IP查询"
+  },
+  "localizedDescriptions": {
+    "zh": "通过 IPLark 查询当前出口或指定 IP 的地址、ISP、IP 类型、国家、使用场景和评分。"
+  }
+}
