@@ -3,12 +3,13 @@
 // @namespace    https://github.com/ZiPenOk
 // @modifiedFrom 磁力验车助手 Beta: https://sleazyfork.org/zh-CN/scripts/565230-%E7%A3%81%E5%8A%9B%E9%AA%8C%E8%BD%A6%E5%8A%A9%E6%89%8B-beta
 // @modifiedFrom 磁力/电驴链接助手: https://sleazyfork.org/zh-CN/scripts/577143-%E7%A3%81%E5%8A%9B-%E7%94%B5%E9%A9%B4%E9%93%BE%E6%8E%A5%E5%8A%A9%E6%89%8B
-// @version      3.5.0-custom.2
+// @version      3.5.0-custom.3
 // @description  识别网页中的磁力链接，提供验车和复制功能。
 // @icon         https://uxwing.com/wp-content/themes/uxwing/download/seo-marketing/magnet-magnetic-icon.png
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
+// @grant        GM.setClipboard
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -360,6 +361,59 @@
         setTimeout(() => toast.remove(), 2000);
     }
 
+    function copyTextBySelection(text) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.autocapitalize = 'off';
+        textarea.autocomplete = 'off';
+        textarea.autocorrect = 'off';
+        textarea.spellcheck = false;
+        textarea.style.cssText = 'position:fixed;top:0;left:0;width:2px;height:2px;padding:0;border:0;font-size:16px;background:#fff;color:#000;opacity:.01;z-index:2147483647;';
+        document.body.appendChild(textarea);
+        try {
+            textarea.focus();
+            textarea.select();
+            textarea.setSelectionRange(0, textarea.value.length);
+            const selection = window.getSelection && window.getSelection();
+            if (selection) {
+                selection.removeAllRanges();
+                const range = document.createRange();
+                range.selectNodeContents(textarea);
+                selection.addRange(range);
+                textarea.setSelectionRange(0, textarea.value.length);
+            }
+            return document.execCommand('copy');
+        } finally {
+            textarea.parentNode.removeChild(textarea);
+        }
+    }
+
+    function copyText(text) {
+        if (!text) return false;
+        try {
+            if (copyTextBySelection(text)) return true;
+        } catch (_) {}
+        try {
+            if (typeof GM_setClipboard === 'function') {
+                GM_setClipboard(text);
+                return true;
+            }
+        } catch (_) {}
+        try {
+            if (typeof GM !== 'undefined' && GM.setClipboard) {
+                GM.setClipboard(text, 'text');
+                return true;
+            }
+        } catch (_) {}
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (_) {}
+        return false;
+    }
+
     function setBtnActive(clickedBtn, group) {
         group.querySelectorAll('.mag-btn').forEach(btn => {
             btn.innerHTML = btn.dataset.origIcon;
@@ -643,7 +697,10 @@
         if (config.enableCopy) {
             addBtn('copy', ICONS.copy, '复制链接', () => {
                 const processedLink = simplifyMagnetLink(link);
-                GM_setClipboard(processedLink, 'text');
+                if (!copyText(processedLink)) {
+                    showToast('❌ 复制失败，请长按链接复制', false);
+                    return;
+                }
                 if (processedLink !== link) {
                     showToast('📋 精简链接已复制');
                 } else {
