@@ -21,11 +21,21 @@ export type Group = {
   order?: number
 }
 
+export type TrashedBookmark = {
+  id: string
+  bookmark: Bookmark
+  sourceGroupId: string
+  sourceGroupName: string
+  deletedAt: number
+}
+
 export type Store = {
   version: number
   groups: Group[]
   /** Standalone favorites list (收藏组). Independent from groups. */
   favorites?: Bookmark[]
+  /** Soft-deleted group bookmarks. */
+  trash?: TrashedBookmark[]
   /** Last local modification time (ms). Used for sync conflict resolution. */
   updatedAt?: number
 }
@@ -140,6 +150,74 @@ export function renameGroup(group: Group, name: string): void {
 
 export function removeGroup(store: Store, groupId: string): void {
   store.groups = store.groups.filter(g => g.id !== groupId)
+}
+
+export function moveBookmark(
+  store: Store,
+  sourceGroupId: string,
+  bookmarkId: string,
+  targetGroupId: string,
+): boolean {
+  if (sourceGroupId === targetGroupId) return false
+  const source = store.groups.find(g => g.id === sourceGroupId)
+  const target = store.groups.find(g => g.id === targetGroupId)
+  const index = source?.bookmarks.findIndex(b => b.id === bookmarkId) ?? -1
+  if (!source || !target || index < 0) return false
+  const [bookmark] = source.bookmarks.splice(index, 1)
+  target.bookmarks.unshift(bookmark)
+  return true
+}
+
+function trashList(store: Store): TrashedBookmark[] {
+  if (!Array.isArray(store.trash)) store.trash = []
+  return store.trash
+}
+
+export function moveBookmarksToTrash(store: Store, group: Group, ids: string[]): void {
+  const selected = new Set(ids)
+  const deletedAt = Date.now()
+  const entries = group.bookmarks
+    .filter(b => selected.has(b.id))
+    .map(bookmark => ({
+      id: uid(),
+      bookmark,
+      sourceGroupId: group.id,
+      sourceGroupName: group.name,
+      deletedAt,
+    }))
+  store.trash = [...entries, ...trashList(store)]
+  group.bookmarks = group.bookmarks.filter(b => !selected.has(b.id))
+}
+
+export function moveGroupToTrash(store: Store, groupId: string): void {
+  const group = store.groups.find(g => g.id === groupId)
+  if (!group) return
+  moveBookmarksToTrash(store, group, group.bookmarks.map(b => b.id))
+  removeGroup(store, groupId)
+}
+
+export function getTrash(store: Store): TrashedBookmark[] {
+  return trashList(store).sort((a, b) => b.deletedAt - a.deletedAt)
+}
+
+export function restoreTrashItem(store: Store, trashId: string): boolean {
+  const item = trashList(store).find(x => x.id === trashId)
+  if (!item) return false
+  let target = store.groups.find(g => g.id === item.sourceGroupId)
+  if (!target) {
+    target = createGroup(store, item.sourceGroupName)
+  }
+  target.bookmarks.unshift(item.bookmark)
+  store.trash = trashList(store).filter(x => x.id !== trashId)
+  return true
+}
+
+export function permanentlyDeleteTrashItem(store: Store, trashId: string): void {
+  store.trash = trashList(store).filter(x => x.id !== trashId)
+}
+
+export function emptyTrash(store: Store): void {
+  store.trash = []
 }
 
 export function removeBookmark(group: Group, bookmarkId: string): void {

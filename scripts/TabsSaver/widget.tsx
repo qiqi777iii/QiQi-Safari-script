@@ -1,10 +1,15 @@
 import { HStack, Image, Link, Script, Spacer, Text, VStack, Widget } from "scripting"
 import { loadStore, totalBookmarkCount, type Bookmark, type Store } from "./store"
 
-function recentBookmarks(store: Store): Bookmark[] {
+type RecentBookmark = {
+  bookmark: Bookmark
+  groupName: string
+}
+
+function recentBookmarks(store: Store): RecentBookmark[] {
   return store.groups
-    .flatMap(group => group.bookmarks)
-    .sort((a, b) => b.savedAt - a.savedAt)
+    .flatMap(group => group.bookmarks.map(bookmark => ({ bookmark, groupName: group.name })))
+    .sort((a, b) => b.bookmark.savedAt - a.bookmark.savedAt)
     .slice(0, 3)
 }
 
@@ -43,7 +48,8 @@ function SmallWidget({ store }: { store: Store }) {
   )
 }
 
-function RecentRow({ bookmark }: { bookmark: Bookmark }) {
+function RecentRow({ item }: { item: RecentBookmark }) {
+  const { bookmark, groupName } = item
   let domain = bookmark.url
   try {
     domain = new URL(bookmark.url).hostname.replace(/^www\./, "")
@@ -58,7 +64,7 @@ function RecentRow({ bookmark }: { bookmark: Bookmark }) {
             {bookmark.title || domain}
           </Text>
           <Text font="caption2" foregroundStyle="secondaryLabel" lineLimit={1}>
-            {domain}
+            {`${groupName} · ${domain}`}
           </Text>
         </VStack>
         <Spacer />
@@ -74,15 +80,19 @@ function MediumWidget({ store }: { store: Store }) {
   return (
     <VStack padding={14} alignment="leading" spacing={8}>
       <HStack spacing={7}>
-        <Image systemName="bookmark.fill" foregroundStyle="systemBlue" font={19} />
-        <Text font="headline" fontWeight="bold">最近收藏</Text>
-        <Spacer />
+        <Link url={Script.createRunSingleURLScheme("Tabs Saver")} buttonStyle="plain">
+          <HStack spacing={7}>
+            <Image systemName="bookmark.fill" foregroundStyle="systemBlue" font={19} />
+            <Text font="headline" fontWeight="bold">最近收藏</Text>
+            <Spacer />
+          </HStack>
+        </Link>
       </HStack>
 
       {recent.length > 0 ? (
         <VStack alignment="leading" spacing={8}>
-          {recent.map(bookmark => (
-            <RecentRow key={bookmark.id} bookmark={bookmark} />
+          {recent.map(item => (
+            <RecentRow key={item.bookmark.id} item={item} />
           ))}
         </VStack>
       ) : (

@@ -29,6 +29,13 @@ import {
   createGroup,
   renameGroup,
   removeGroup,
+  moveGroupToTrash,
+  moveBookmark,
+  moveBookmarksToTrash,
+  getTrash,
+  restoreTrashItem,
+  permanentlyDeleteTrashItem,
+  emptyTrash,
   removeBookmark,
   removeBookmarks,
   markBookmarkRead,
@@ -44,6 +51,7 @@ import {
   type Group,
   type Bookmark,
   type Store,
+  type TrashedBookmark,
 } from "./store"
 import {
   pushToCloud,
@@ -117,10 +125,20 @@ type DaySection = { key: number; label: string; items: Bookmark[] }
 const GROUP_SEPARATOR_KEY = "tab.showGroupSeparators"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.2.13"
+const APP_VERSION = "1.3.0"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.3.0",
+    date: "2026-07-12",
+    items: [
+      "新增主界面域名搜索和分组内搜索。",
+      "收藏支持快速移动到其他分组。",
+      "删除的普通收藏和分组内容会进入回收站，可恢复、永久删除或清空。",
+      "中尺寸小组件标题可打开管理面板，并显示最近收藏所属分组。",
+    ],
+  },
   {
     version: "1.2.13",
     date: "2026-07-12",
@@ -337,6 +355,7 @@ function MainView() {
     getShowGroupSeparators(),
   )
   const [displayRevision, setDisplayRevision] = useState(0)
+  const [domainQuery, setDomainQuery] = useState("")
 
   async function reload() {
     const s = await loadStore()
@@ -481,12 +500,12 @@ function MainView() {
     if (g.bookmarks.length > 0) {
       const ok = await Dialog.confirm({
         title: `删除分组“${g.name}”？`,
-        message: `该分组内 ${g.bookmarks.length} 条收藏会一并删除，无法撤销。`,
+        message: `该分组内 ${g.bookmarks.length} 条收藏会移入回收站，可稍后恢复。`,
         confirmLabel: "删除",
       })
       if (!ok) return
     }
-    removeGroup(store, g.id)
+    moveGroupToTrash(store, g.id)
     await persist()
   }
 
@@ -595,6 +614,14 @@ function MainView() {
   const groups = sortedGroups(store)
   const totalCount = totalBookmarkCount(store)
   const favCount = getFavorites(store).length
+  const normalizedDomainQuery = domainQuery.trim().toLowerCase()
+  const domainMatches = normalizedDomainQuery
+    ? groups.flatMap(group =>
+        group.bookmarks
+          .filter(bookmark => host(bookmark.url).toLowerCase().includes(normalizedDomainQuery))
+          .map(bookmark => ({ group, bookmark })),
+      )
+    : []
 
   return (
     <NavigationStack>
@@ -633,6 +660,17 @@ function MainView() {
                 title="版本更新"
                 systemImage="sparkles"
                 action={showVersionUpdates}
+              />
+              <Button
+                title="回收站"
+                systemImage="trash"
+                action={async () => {
+                  await Navigation.present({
+                    element: <TrashView />,
+                    modalPresentationStyle: "pageSheet",
+                  })
+                  await reload()
+                }}
               />
               <Button
                 title="新建分组"
@@ -733,6 +771,40 @@ function MainView() {
           </Section>
         ) : (
           <>
+            <Section>
+              <TextField
+                title="域名搜索"
+                prompt="输入域名，例如 example.com"
+                value={domainQuery}
+                onChanged={setDomainQuery}
+              />
+            </Section>
+            {normalizedDomainQuery ? (
+              <Section
+                header={<Text>域名搜索结果</Text>}
+                footer={<Text>{`找到 ${domainMatches.length} 条收藏`}</Text>}
+              >
+                {domainMatches.length === 0 ? (
+                  <Text foregroundStyle="secondaryLabel">没有匹配的域名</Text>
+                ) : domainMatches.map(({ group, bookmark }) => (
+                  <Button
+                    key={`${group.id}-${bookmark.id}`}
+                    buttonStyle="plain"
+                    action={() => Safari.openURL(bookmark.url)}
+                  >
+                    <HStack spacing={10}>
+                      <Image systemName="globe" foregroundStyle="systemBlue" />
+                      <VStack alignment="leading" spacing={3} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+                        <Text lineLimit={1}>{bookmark.title}</Text>
+                        <Text font="footnote" foregroundStyle="secondaryLabel" lineLimit={1}>
+                          {`${group.name} · ${host(bookmark.url)}`}
+                        </Text>
+                      </VStack>
+                    </HStack>
+                  </Button>
+                ))}
+              </Section>
+            ) : null}
             <Section>
               <NavigationLink destination={<FavoritesView />}>
                 <HStack>
@@ -1326,6 +1398,7 @@ function GroupView({ groupId }: { groupId: string }) {
   const [loaded, setLoaded] = useState(false)
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
 
   async function reload() {
     const s = await loadStore()
@@ -1334,13 +1407,41 @@ function GroupView({ groupId }: { groupId: string }) {
   }
 
   const group = store.groups.find((g: Group) => g.id === groupId)
+  const normalizedSearch = searchQuery.trim().toLowerCase()
+  const filteredBookmarks = group
+    ? group.bookmarks.filter(bookmark => {
+        if (!normalizedSearch) return true
+        return bookmark.title.toLowerCase().includes(normalizedSearch) ||
+          host(bookmark.url).toLowerCase().includes(normalizedSearch) ||
+          bookmark.url.toLowerCase().includes(normalizedSearch)
+      })
+    : []
 
   async function onDelete(bookmarkId: string) {
     if (!group) return
-    removeBookmark(group, bookmarkId)
+    moveBookmarksToTrash(store, group, [bookmarkId])
     await saveStore(store)
     setStore({ ...store })
     setSelected(selected.filter(id => id !== bookmarkId))
+  }
+
+  async function onMove(bookmarkId: string) {
+    if (!group) return
+    const targets = sortedGroups(store).filter(g => g.id !== group.id)
+    if (targets.length === 0) {
+      await Dialog.alert({ title: "没有其他分组", message: "请先新建一个目标分组。" })
+      return
+    }
+    const index = await Dialog.actionSheet({
+      title: "移动到分组",
+      message: "选择目标分组",
+      actions: targets.map(target => ({ label: target.name })),
+    })
+    if (index == null || !targets[index]) return
+    if (moveBookmark(store, group.id, bookmarkId, targets[index].id)) {
+      await saveStore(store)
+      setStore({ ...store })
+    }
   }
 
   async function openBookmark(b: Bookmark) {
@@ -1382,28 +1483,28 @@ function GroupView({ groupId }: { groupId: string }) {
 
   function selectAll() {
     if (!group) return
-    if (selected.length === group.bookmarks.length) {
+    if (selected.length === filteredBookmarks.length) {
       setSelected([])
     } else {
-      setSelected(group.bookmarks.map((b: Bookmark) => b.id))
+      setSelected(filteredBookmarks.map((b: Bookmark) => b.id))
     }
   }
 
   async function deleteSelected() {
     if (!group || selected.length === 0) return
     const ok = await Dialog.confirm({
-      title: `删除 ${selected.length} 条收藏？`,
-      message: "此操作无法撤销。",
+      title: `将 ${selected.length} 条收藏移到回收站？`,
+      message: "可以稍后从回收站恢复。",
     })
     if (!ok) return
-    removeBookmarks(group, selected)
+    moveBookmarksToTrash(store, group, selected)
     await saveStore(store)
     setStore({ ...store })
     exitSelect()
   }
 
   const allSelected =
-    !!group && group.bookmarks.length > 0 && selected.length === group.bookmarks.length
+    filteredBookmarks.length > 0 && selected.length === filteredBookmarks.length
 
   return (
     <List
@@ -1513,10 +1614,22 @@ function GroupView({ groupId }: { groupId: string }) {
         <Text foregroundStyle="secondaryLabel">加载中…</Text>
       ) : !group ? (
         <Text foregroundStyle="secondaryLabel">该分组已不存在</Text>
-      ) : group.bookmarks.length === 0 ? (
-        <Text foregroundStyle="secondaryLabel">这个分组还没有收藏</Text>
       ) : (
-        groupByDay(group.bookmarks).map((sec: DaySection) => (
+        <>
+          <Section>
+            <TextField
+              title="搜索"
+              prompt="搜索标题、域名或网址"
+              value={searchQuery}
+              onChanged={setSearchQuery}
+            />
+          </Section>
+          {group.bookmarks.length === 0 ? (
+            <Text foregroundStyle="secondaryLabel">这个分组还没有收藏</Text>
+          ) : filteredBookmarks.length === 0 ? (
+            <Text foregroundStyle="secondaryLabel">没有匹配的收藏</Text>
+          ) : (
+            groupByDay(filteredBookmarks).map((sec: DaySection) => (
           <Section
             key={sec.key}
             header={
@@ -1544,6 +1657,11 @@ function GroupView({ groupId }: { groupId: string }) {
                                 title="复制链接"
                                 systemImage="doc.on.doc"
                                 action={() => Pasteboard.setString(b.url)}
+                              />
+                              <Button
+                                title="移动到分组"
+                                systemImage="folder"
+                                action={() => onMove(b.id)}
                               />
                               <Button
                                 title="删除"
@@ -1632,9 +1750,97 @@ function GroupView({ groupId }: { groupId: string }) {
               )
             })}
           </Section>
-        ))
+            ))
+          )}
+        </>
       )}
     </List>
+  )
+}
+
+function TrashView() {
+  const dismiss = Navigation.useDismiss()
+  const [store, setStore] = useState<Store>({ version: 1, groups: [] })
+  const [loaded, setLoaded] = useState(false)
+
+  async function reload() {
+    const next = await loadStore()
+    setStore({ ...next })
+    setLoaded(true)
+  }
+
+  async function restore(item: TrashedBookmark) {
+    if (!restoreTrashItem(store, item.id)) return
+    await saveStore(store)
+    setStore({ ...store })
+  }
+
+  async function removeForever(item: TrashedBookmark) {
+    const ok = await Dialog.confirm({
+      title: "永久删除这条收藏？",
+      message: "永久删除后无法恢复。",
+      confirmLabel: "永久删除",
+    })
+    if (!ok) return
+    permanentlyDeleteTrashItem(store, item.id)
+    await saveStore(store)
+    setStore({ ...store })
+  }
+
+  async function clearAll() {
+    const count = getTrash(store).length
+    if (count === 0) return
+    const ok = await Dialog.confirm({
+      title: `清空 ${count} 条回收站收藏？`,
+      message: "清空后无法恢复。",
+      confirmLabel: "清空",
+    })
+    if (!ok) return
+    emptyTrash(store)
+    await saveStore(store)
+    setStore({ ...store })
+  }
+
+  const items = getTrash(store)
+
+  return (
+    <NavigationStack>
+      <List
+        navigationTitle="回收站"
+        navigationBarTitleDisplayMode="inline"
+        onAppear={reload}
+        toolbar={{
+          cancellationAction: <Button title="关闭" action={dismiss} />,
+          topBarTrailing: items.length > 0 ? (
+            <Button title="清空" role="destructive" action={clearAll} />
+          ) : undefined,
+        }}
+      >
+        {!loaded ? (
+          <Text foregroundStyle="secondaryLabel">加载中…</Text>
+        ) : items.length === 0 ? (
+          <Text foregroundStyle="secondaryLabel">回收站为空</Text>
+        ) : (
+          <Section footer={<Text>恢复时会回到原分组；原分组已删除时会重新建立。</Text>}>
+            {items.map(item => (
+              <HStack key={item.id} spacing={10}>
+                <Image systemName="trash" foregroundStyle="secondaryLabel" />
+                <VStack alignment="leading" spacing={3} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+                  <Text lineLimit={1}>{item.bookmark.title}</Text>
+                  <Text font="footnote" foregroundStyle="secondaryLabel" lineLimit={1}>
+                    {`${item.sourceGroupName} · ${host(item.bookmark.url)}`}
+                  </Text>
+                </VStack>
+                <Menu title="更多" systemImage="ellipsis.circle">
+                  <Button title="恢复" systemImage="arrow.uturn.backward" action={() => restore(item)} />
+                  <Button title="永久删除" systemImage="trash" role="destructive" action={() => removeForever(item)} />
+                </Menu>
+              </HStack>
+            ))}
+          </Section>
+        )}
+      </List>
+    </NavigationStack>
   )
 }
 
