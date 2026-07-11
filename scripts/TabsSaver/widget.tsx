@@ -8,7 +8,7 @@ function WidgetView({ store }: { store: Store }) {
   const compact = Widget.family === "systemSmall"
 
   return (
-    <Link url={Script.createOpenURLScheme("Tabs Saver")}>
+    <Link url={Script.createRunSingleURLScheme("Tabs Saver")}>
       <VStack
         padding={compact ? 14 : 16}
         alignment="leading"

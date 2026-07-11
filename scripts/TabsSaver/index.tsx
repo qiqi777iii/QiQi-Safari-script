@@ -117,10 +117,17 @@ type DaySection = { key: number; label: string; items: Bookmark[] }
 const GROUP_SEPARATOR_KEY = "tab.showGroupSeparators"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.2.12"
+const APP_VERSION = "1.2.13"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.2.13",
+    date: "2026-07-12",
+    items: [
+      "修复点击主屏幕小组件会进入代码编辑器的问题，现在会直接运行并打开收藏面板。",
+    ],
+  },
   {
     version: "1.2.12",
     date: "2026-07-12",
