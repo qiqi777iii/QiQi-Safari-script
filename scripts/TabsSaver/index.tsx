@@ -1831,7 +1831,7 @@ function TrashView() {
                     {`${item.sourceGroupName} · ${host(item.bookmark.url)}`}
                   </Text>
                 </VStack>
-                <Menu title="更多" systemImage="ellipsis.circle">
+                <Menu title="更多">
                   <Button title="恢复" systemImage="arrow.uturn.backward" action={() => restore(item)} />
                   <Button title="永久删除" systemImage="trash" role="destructive" action={() => removeForever(item)} />
                 </Menu>
