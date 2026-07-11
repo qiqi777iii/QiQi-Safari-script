@@ -2,7 +2,7 @@
   "name": "IP查询",
   "icon": "network",
   "color": "#007AFF",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "remoteResource": {
     "url": "https://github.com/qiqi777iii/Scripts/tree/main/scripts/IPQuery"
   },
