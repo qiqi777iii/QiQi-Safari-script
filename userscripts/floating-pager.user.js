@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         悬浮翻页
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.63
+// @version      1.0.64
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @description  自动识别页面的上一页和下一页，并提供可拖动的悬浮翻页按钮。
@@ -21,10 +21,10 @@
   const SCRIPT_ID = "universal-pagination-floating-menu";
   const POS_KEY = `${SCRIPT_ID}:position:v7`;
   const SAFE_BOTTOM_GAP = 0;
-  const PAGER_ITEM_SIZE = 26;
-  const PAGE_MIN_WIDTH = 26;
+  const PAGER_ITEM_SIZE = 30;
+  const PAGE_MIN_WIDTH = 30;
   const FALLBACK_PAGER_WIDTH = PAGER_ITEM_SIZE * 3 + PAGE_MIN_WIDTH;
-  const REFRESH_ICON_SIZE = 17;
+  const REFRESH_ICON_SIZE = 19;
   const DEFAULT_RIGHT_GAP = 16;
   const NODESEEK_BOTTOM_EXTRA = 0;
   const ENABLE_KEY = `${SCRIPT_ID}:enabled`;
@@ -1472,7 +1472,7 @@
         min-width: ${PAGER_ITEM_SIZE}px;
         border: 0;
         margin: 0;
-        padding: 0 5px;
+        padding: 0;
         color: inherit;
         background: transparent;
         display: flex;
@@ -1481,13 +1481,13 @@
       }
       #${SCRIPT_ID} button {
         cursor: pointer;
-        font-size: 15px;
+        font-size: 16px;
         -webkit-tap-highlight-color: transparent;
         transition: background .18s ease, transform .12s ease, opacity .18s ease;
       }
       #${SCRIPT_ID} button svg {
-        width: 17px;
-        height: 17px;
+        width: 19px;
+        height: 19px;
         display: block;
         pointer-events: none;
       }
@@ -1512,8 +1512,8 @@
       #${SCRIPT_ID} .page::after {
         content: "";
         position: absolute;
-        top: 6px;
-        bottom: 6px;
+        top: 7px;
+        bottom: 7px;
         width: 1px;
         background: var(--upfm-separator);
         pointer-events: none;
