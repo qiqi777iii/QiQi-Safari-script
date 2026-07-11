@@ -619,6 +619,7 @@ function MainView() {
           prompt: "搜索域名",
           placement: "navigationBarDrawer",
         }}
+        searchToolbarBehavior="minimize"
         listSectionSpacing="compact"
         listRowSpacing={0}
         environments={{ editMode }}
@@ -1483,6 +1484,7 @@ function GroupView({ groupId }: { groupId: string }) {
         prompt: "搜索标题、域名或网址",
         placement: "navigationBarDrawer",
       }}
+      searchToolbarBehavior="minimize"
       onAppear={reload}
       safeAreaInset={
         selecting
