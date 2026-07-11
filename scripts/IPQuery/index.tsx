@@ -13,7 +13,6 @@ import {
   Text,
   TextField,
   Widget,
-  useEffect,
   useState,
 } from "scripting"
 import { countryFlag, fetchIPInfo, IPInfo, readCachedIPInfo, scoreColor } from "./data"
@@ -54,27 +53,12 @@ function SearchView() {
     }
   }
 
-  return <List
-    navigationTitle="IP 查询"
-    navigationBarTitleDisplayMode="inline"
-    overlay={loading ? <ProgressView title="正在查询 IPLark…" /> : undefined}
-  >
+  return <List navigationTitle="IP 查询" navigationBarTitleDisplayMode="inline" overlay={loading ? <ProgressView title="正在查询 IPLark…" /> : undefined}>
     <Section footer={<Text>输入 IPv4 地址，查询结果不会改变桌面小组件的当前出口 IP。</Text>}>
-      <TextField
-        title="IP 地址"
-        prompt="例如 8.8.8.8"
-        value={input}
-        onChanged={setInput}
-        keyboardType="numbersAndPunctuation"
-        autocorrectionDisabled
-        textInputAutocapitalization="never"
-      />
+      <TextField title="IP 地址" prompt="例如 8.8.8.8" value={input} onChanged={setInput} keyboardType="numbersAndPunctuation" autocorrectionDisabled textInputAutocapitalization="never" />
       <Button title={loading ? "查询中…" : "查询"} action={search} disabled={loading || !input.trim()} />
     </Section>
-
-    {error ? <Section>
-      <Text foregroundStyle="systemRed">{error}</Text>
-    </Section> : null}
+    {error ? <Section><Text foregroundStyle="systemRed">{error}</Text></Section> : null}
     {result ? <InfoSection info={result.info} /> : null}
   </List>
 }
@@ -82,7 +66,7 @@ function SearchView() {
 function MainView() {
   const dismiss = Navigation.useDismiss()
   const [info, setInfo] = useState<IPInfo | null>(() => readCachedIPInfo())
-  const [loading, setLoading] = useState(() => !readCachedIPInfo())
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = async () => {
@@ -99,10 +83,6 @@ function MainView() {
     }
   }
 
-  useEffect(() => {
-    refresh()
-  }, [])
-
   return <NavigationStack>
     <List
       navigationTitle="当前 IP"
@@ -114,7 +94,7 @@ function MainView() {
       overlay={!info && loading
         ? <ProgressView title="正在连接 IPLark…" />
         : !info
-          ? <ContentUnavailableView title="无法获取 IP 信息" systemImage="wifi.exclamationmark" description={error ?? "请稍后重试"} />
+          ? <ContentUnavailableView title="暂无 IP 数据" systemImage="network" description={error ?? "点击右上角刷新进行查询"} />
           : undefined}
     >
       {info ? <InfoSection info={info} title="出口信息" /> : null}

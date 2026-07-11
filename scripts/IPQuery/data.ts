@@ -37,7 +37,8 @@ export function readCachedIPInfo(): IPInfo | null {
   return info
 }
 
-export async function fetchIPInfo(): Promise<IPInfo> {
+export async function fetchIPInfo(options: { interactiveVerification?: boolean } = {}): Promise<IPInfo> {
+  const interactiveVerification = options.interactiveVerification ?? true
   const web = new WebViewController()
   web.setCustomUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148")
 
@@ -51,7 +52,7 @@ export async function fetchIPInfo(): Promise<IPInfo> {
     await wait(500)
     let didPresentVerification = false
     const initialTitle = await web.evaluateJavaScript<string>("return document.title")
-    if (initialTitle === "安全验证") {
+    if (initialTitle === "安全验证" && interactiveVerification) {
       didPresentVerification = true
       await web.present({
         fullscreen: false,
@@ -61,26 +62,38 @@ export async function fetchIPInfo(): Promise<IPInfo> {
     }
 
     const readPage = () => web.evaluateJavaScript<any>(`
-      const item = label => Array.from(document.querySelectorAll('.info-item'))
-        .find(node => (node.querySelector('label')?.textContent || '').includes(label))
-        ?.querySelector('.value')?.textContent?.trim() || ''
-      const tags = Array.from(document.querySelectorAll('.ip-tags .tag'))
-        .map(node => (node.textContent || '').trim())
-        .filter(Boolean)
-      return {
-        title: document.title,
-        ip: document.querySelector('.ip-highlight')?.textContent?.trim() || '',
-        isp: tags.find(tag => tag === 'ISP') || tags[0] || '',
-        nativeIP: tags.find(tag => tag.includes('原生IP')) || tags[1] || '',
-        country: item('国家'),
-        countryCode: document.querySelector('.info-item img[src*="/flags/"]')?.getAttribute('src')?.match(/\\/flags\\/([a-z]{2})\\./i)?.[1]?.toUpperCase() || '',
-        category: document.querySelector('#type')?.textContent?.trim() || item('使用场景'),
-        score: document.querySelector('#score-value')?.textContent?.trim() || ''
-      }
+      return (async () => {
+        const item = label => Array.from(document.querySelectorAll('.info-item'))
+          .find(node => (node.querySelector('label')?.textContent || '').includes(label))
+          ?.querySelector('.value')?.textContent?.trim() || ''
+        const tags = Array.from(document.querySelectorAll('.ip-tags .tag'))
+          .map(node => (node.textContent || '').trim())
+          .filter(Boolean)
+        const safeJSON = async url => {
+          try {
+            const response = await fetch(url, { cache: 'no-store' })
+            return response.ok ? await response.json() : {}
+          } catch { return {} }
+        }
+        const [category, score] = await Promise.all([
+          safeJSON('/ipcategory'),
+          safeJSON('/ipscore')
+        ])
+        return {
+          title: document.title,
+          ip: category.ip || score.ip || document.querySelector('.ip-highlight')?.textContent?.trim() || '',
+          isp: tags.find(tag => tag === 'ISP') || tags[0] || '',
+          nativeIP: tags.find(tag => tag.includes('原生IP')) || tags[1] || '',
+          country: item('国家'),
+          countryCode: document.querySelector('.info-item img[src*="/flags/"]')?.getAttribute('src')?.match(/\\/flags\\/([a-z]{2})\\./i)?.[1]?.toUpperCase() || '',
+          category: category.type || document.querySelector('#type')?.textContent?.trim() || item('使用场景'),
+          score: (score.quality_score ?? document.querySelector('#score-value')?.textContent?.trim()) || ''
+        }
+      })()
     `)
 
     let raw = await readPage()
-    if (!raw?.ip && !didPresentVerification) {
+    if (!raw?.ip && !didPresentVerification && interactiveVerification) {
       await web.present({
         fullscreen: false,
         navigationTitle: "完成验证后关闭此页面",
