@@ -131,10 +131,17 @@ const GROUP_SEPARATOR_KEY = "tab.showGroupSeparators"
 const TRASH_RETENTION_KEY = "tab.trashRetentionDays"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.4.6"
+const APP_VERSION = "1.4.7"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.4.7",
+    date: "2026-07-12",
+    items: [
+      "分组排序入口移到主界面分组的长按菜单，并从显示设置中移除。",
+    ],
+  },
   {
     version: "1.4.6",
     date: "2026-07-12",
@@ -736,7 +743,6 @@ function MainView() {
                 />
               </Menu>
               <Menu title="显示设置" systemImage="textformat.size">
-                <Button title="分组排序" systemImage="arrow.up.arrow.down" action={enterSort} />
                 <Button
                   title={showGroupSeparators ? "隐藏分割线" : "显示分割线"}
                   systemImage={showGroupSeparators ? "line.3.horizontal.decrease" : "line.3.horizontal"}
@@ -849,6 +855,11 @@ function MainView() {
                   contextMenu={{
                     menuItems: (
                       <>
+                        <Button
+                          title="排序分组"
+                          systemImage="arrow.up.arrow.down"
+                          action={enterSort}
+                        />
                         <Button
                           title="重命名"
                           systemImage="pencil"
