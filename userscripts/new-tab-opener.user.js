@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.62
+// @version      1.0.63
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -22,15 +22,15 @@
     const PAGER_RIGHT_GAP = 16;
     const PAGER_HEIGHT = 35;
     const DEFAULT_BOTTOM = BOTTOM_GAP + (PAGER_HEIGHT - BTN_SIZE) / 2;
-    const FALLBACK_PAGER_WIDTH = 148;
+    const FALLBACK_PAGER_WIDTH = 175;
     const DEFAULT_RIGHT = PAGER_RIGHT_GAP + FALLBACK_PAGER_WIDTH + LINK_PAGER_GAP;
-    const CURRENT_LAYOUT_VERSION = '1.0.62';
+    const CURRENT_LAYOUT_VERSION = '1.0.63';
 
     const COLOR_ON = '#0A84FF';
     const COLOR_OFF = 'rgba(28,28,30,.82)';
 
     let enabled = getVal('newTabEnabled', false);
-    let toolbar, linkBtn, observer, bodyObserver, toolbarEnsureTimer;
+    let toolbar, linkBtn, observer, bodyObserver, toolbarEnsureTimer, neighborResizeObserver, observedNeighbor;
     let menuRegistered = false;
     let listenersInstalled = false;
     let historyHooked = false;
@@ -688,6 +688,15 @@
     // 标签页收藏按钮 id：默认把新标签页按钮排在其左侧。
     const TABS_SAVER_ID = 'qiqi-tab-save-toolbar';
 
+    function observeNeighbor(neighbor) {
+        if (observedNeighbor === neighbor) return;
+        neighborResizeObserver?.disconnect();
+        observedNeighbor = neighbor || null;
+        if (!neighbor || typeof ResizeObserver !== 'function') return;
+        neighborResizeObserver = new ResizeObserver(schedulePositionStabilize);
+        neighborResizeObserver.observe(neighbor);
+    }
+
     // 默认位置：横向优先读取标签页收藏按钮的实时 rect，把按钮排在其左侧；
     // 纵向始终使用 fixed bottom，不读取 rect.top，避免 iOS 过度滑动/地址栏伸缩时被临时 top 值带偏。
     // 若收藏按钮尚未创建，则使用保守 right/bottom 兜底。
@@ -695,6 +704,7 @@
         if (!toolbar) return;
         const viewport = getViewportBox();
         const neighbor = document.getElementById(TABS_SAVER_ID);
+        observeNeighbor(neighbor);
         // 纵向用 CSS bottom 锚定贴底（不换算绝对 top），避免 iOS Safari 地址栏伸缩时
         // viewport.height 取到偏大的布局视口高度，把按钮顶到屏幕中间。
         const defaultRightLeft = Math.max(0, Math.floor(viewport.width - BTN_SIZE - DEFAULT_RIGHT));

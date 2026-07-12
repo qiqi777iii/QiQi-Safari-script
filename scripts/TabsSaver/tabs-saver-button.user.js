@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 0.2.31
+// @version 0.2.32
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -24,10 +24,10 @@
 
   // 悬浮翻页胶囊 id：默认把收藏按钮排在它左侧。
   const PAGER_ID = "universal-pagination-floating-menu"
-  const LAYOUT_VERSION = "0.2.31"
+  const LAYOUT_VERSION = "0.2.32"
   const NEIGHBOR_GAP = 4
-  // 没有新标签按钮时（新用户/只装了 Tab）：居右边框 40px。
-  const FALLBACK_RIGHT = 40
+  // 没有检测到翻页胶囊时，仍按完整 175px 胶囊预留位置，防止加载时序造成重叠。
+  const FALLBACK_RIGHT = 195
   const BOTTOM_GAP = 35
 
   const LS_KEY = "qiqi_tab_"
@@ -45,6 +45,8 @@
   let observedHead = null
   let healthCheckQueued = false
   let globalListenersInstalled = false
+  let neighborResizeObserver = null
+  let observedNeighbor = null
 
   function lsGet(key, def) {
     try {
@@ -543,10 +545,20 @@
     return true
   }
 
+  function observeNeighbor(neighbor) {
+    if (observedNeighbor === neighbor) return
+    neighborResizeObserver?.disconnect()
+    observedNeighbor = neighbor || null
+    if (!neighbor || typeof ResizeObserver !== "function") return
+    neighborResizeObserver = new ResizeObserver(schedulePositionStabilize)
+    neighborResizeObserver.observe(neighbor)
+  }
+
   function applyDefaultPosition() {
     if (!wrap) return
     const viewport = getViewportBox()
     const neighbor = document.getElementById(PAGER_ID)
+    observeNeighbor(neighbor)
     if (neighbor) {
       const rect = neighbor.getBoundingClientRect()
       if (rect.width > 0 && rect.height > 0) {
