@@ -606,7 +606,8 @@ function MainView() {
       if (!ok) return
     }
     moveGroupToTrash(store, g.id)
-    await persist()
+    setStore({ ...store })
+    await saveStore(store)
   }
 
   async function handleWebDAVPushResult(r: PushResult): Promise<boolean> {
@@ -1407,9 +1408,9 @@ function GroupView({ groupId }: { groupId: string }) {
   async function onDelete(bookmarkId: string) {
     if (!group) return
     moveBookmarksToTrash(store, group, [bookmarkId])
-    await saveStore(store)
     setStore({ ...store })
     setSelected(selected.filter(id => id !== bookmarkId))
+    await saveStore(store)
   }
 
   async function chooseMoveTarget(title: string): Promise<Group | null> {
@@ -1510,9 +1511,9 @@ function GroupView({ groupId }: { groupId: string }) {
     })
     if (!ok) return
     moveBookmarksToTrash(store, group, selected)
-    await saveStore(store)
     setStore({ ...store })
     exitSelect()
+    await saveStore(store)
   }
 
   const allSelected =
@@ -1808,8 +1809,8 @@ function TrashView() {
     })
     if (!ok) return
     permanentlyDeleteTrashItem(store, item.id)
-    await saveStore(store)
     setStore({ ...store })
+    await saveStore(store)
   }
 
   async function clearAll() {
@@ -1822,8 +1823,8 @@ function TrashView() {
     })
     if (!ok) return
     emptyTrash(store)
-    await saveStore(store)
     setStore({ ...store })
+    await saveStore(store)
   }
 
   const items = getTrash(store)
@@ -1905,9 +1906,9 @@ function FavoritesView() {
 
   async function onDelete(id: string) {
     removeFavorite(store, id)
-    await saveStore(store)
     setStore({ ...store })
     setSelected(selected.filter(x => x !== id))
+    await saveStore(store)
   }
 
   async function openBookmark(b: Bookmark) {
@@ -1950,9 +1951,9 @@ function FavoritesView() {
     })
     if (!ok) return
     removeFavorites(store, selected)
-    await saveStore(store)
     setStore({ ...store })
     exitSelect()
+    await saveStore(store)
   }
 
   const allSelected =
