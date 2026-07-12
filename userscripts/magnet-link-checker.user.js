@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         磁力链验车
-// @namespace    https://github.com/ZiPenOk
+// @namespace    https://github.com/qiqi777iii/Scripts
 // @modifiedFrom 磁力验车助手 Beta: https://sleazyfork.org/zh-CN/scripts/565230-%E7%A3%81%E5%8A%9B%E9%AA%8C%E8%BD%A6%E5%8A%A9%E6%89%8B-beta
 // @modifiedFrom 磁力/电驴链接助手: https://sleazyfork.org/zh-CN/scripts/577143-%E7%A3%81%E5%8A%9B-%E7%94%B5%E9%A9%B4%E9%93%BE%E6%8E%A5%E5%8A%A9%E6%89%8B
-// @version      3.5.0-custom.3
+// @version      3.5.0-custom.4
 // @description  识别网页中的磁力链接，提供验车和复制功能。
 // @icon         https://uxwing.com/wp-content/themes/uxwing/download/seo-marketing/magnet-magnetic-icon.png
 // @match        *://*/*
@@ -15,8 +15,10 @@
 // @grant        GM_registerMenuCommand
 // @connect      *
 // @connect      whatslink.info
-// @homepageURL  https://github.com/ZiPenOk/scripts
-// @supportURL   https://github.com/ZiPenOk/scripts/issues
+// @homepageURL  https://github.com/qiqi777iii/Scripts
+// @supportURL   https://github.com/qiqi777iii/Scripts/issues
+// @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/magnet-link-checker.user.js
+// @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/magnet-link-checker.user.js
 // @run-at       document-start
 // ==/UserScript==
 
@@ -669,7 +671,8 @@
     function createBtnGroup(link) {
         const group = document.createElement('span');
         group.className = 'mag-btn-group';
-        group.onclick = (e) => { e.preventDefault(); e.stopPropagation(); };
+        group.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
+        group.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); }, { passive: false });
 
         const addBtn = (type, icon, title, action) => {
             const btn = document.createElement('div');
@@ -679,15 +682,29 @@
             btn.innerHTML = icon;
             btn.title = title;
             btn.dataset.origIcon = icon;
-            btn.onclick = (e) => {
+
+            let touchedAt = 0;
+            const runAction = (e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 if (type === 'check') {
                     action(btn);
-                } else {
+                } else if (action()) {
                     setBtnActive(btn, group);
-                    action();
                 }
             };
+            btn.addEventListener('click', (e) => {
+                if (Date.now() - touchedAt < 700) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                runAction(e);
+            });
+            btn.addEventListener('touchend', (e) => {
+                touchedAt = Date.now();
+                runAction(e);
+            }, { passive: false });
             group.appendChild(btn);
         };
 
@@ -697,15 +714,17 @@
         if (config.enableCopy) {
             addBtn('copy', ICONS.copy, '复制链接', () => {
                 const processedLink = simplifyMagnetLink(link);
-                if (!copyText(processedLink)) {
+                const copied = copyText(processedLink);
+                if (!copied) {
                     showToast('❌ 复制失败，请长按链接复制', false);
-                    return;
+                    return false;
                 }
                 if (processedLink !== link) {
                     showToast('📋 精简链接已复制');
                 } else {
                     showToast('📋 链接已复制');
                 }
+                return true;
             });
         }
         if (config.enableQb) {
