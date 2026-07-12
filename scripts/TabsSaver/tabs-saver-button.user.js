@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 0.2.21
+// @version 0.2.22
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -241,16 +241,56 @@
     if (failed > 0) throw new Error(`已收藏，${failed} 个标签页关闭失败`)
   }
 
-  function showSaveDialog({ tabs, currentId, groupId = null }) {
+  async function createEmptyGroup(name) {
+    const groupName = String(name || "").trim()
+    if (!groupName) throw new Error("分组名不能为空")
+    const { file } = storePath()
+    const store = await loadStore(file)
+    const groups = ensureGroups(store)
+    const existing = groups.find(group => String(group?.name || "").trim() === groupName)
+    if (existing) return existing
+    const group = { id: uid(), name: groupName, createdAt: now(), bookmarks: [] }
+    groups.push(group)
+    await saveStore(file, store)
+    return group
+  }
+
+  async function showSaveDialog(kind) {
     document.getElementById(DIALOG_ID)?.remove()
+    document.getElementById(PICKER_ID)?.remove()
+
+    const currentSelection = await tabsForMode("current")
+    let allSelection = null
+    let groups = []
+    if (kind === "scope") allSelection = await tabsForMode("all")
+    else {
+      const { file } = storePath()
+      const store = await loadStore(file)
+      ensureDefaultGroup(store)
+      await saveStore(file, store)
+      groups = sortGroups(ensureGroups(store))
+    }
+
     const overlay = document.createElement("div")
     overlay.id = DIALOG_ID
+    const scopeContent = kind === "scope" ? `
+      <div class="qts-dialog-section-title">收藏范围</div>
+      <label class="qts-dialog-choice"><input type="radio" name="qts-scope" value="current" checked><span>当前标签页</span></label>
+      <label class="qts-dialog-choice"><input type="radio" name="qts-scope" value="all"><span>全部标签页</span></label>` : `
+      <div class="qts-dialog-section-title">收藏到标签组</div>
+      <div class="qts-dialog-group-row">
+        <select class="qts-dialog-group" aria-label="收藏到标签组">
+          ${groups.map(group => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name || DEFAULT_GROUP_NAME)}（${Array.isArray(group.bookmarks) ? group.bookmarks.length : 0}）</option>`).join("")}
+        </select>
+        <button type="button" class="qts-dialog-new-group">＋</button>
+      </div>`
     overlay.innerHTML = `
       <div class="qts-dialog-card" role="dialog" aria-modal="true" aria-label="保存会话">
         <div class="qts-dialog-title">保存会话</div>
-        <div class="qts-dialog-count">${tabs.length} 个标签页</div>
+        ${scopeContent}
+        <div class="qts-dialog-count">${currentSelection.tabs.length} 个标签页</div>
         <label class="qts-dialog-option">
-          <input type="checkbox">
+          <input type="checkbox" class="qts-dialog-close">
           <span>保存后关闭标签页</span>
         </label>
         <div class="qts-dialog-actions">
@@ -258,16 +298,40 @@
           <button type="button" class="qts-dialog-save">保存</button>
         </div>
       </div>`
+
     const cancel = overlay.querySelector(".qts-dialog-cancel")
     const save = overlay.querySelector(".qts-dialog-save")
-    const checkbox = overlay.querySelector('input[type="checkbox"]')
+    const closeAfter = overlay.querySelector(".qts-dialog-close")
+    const count = overlay.querySelector(".qts-dialog-count")
+    const groupSelect = overlay.querySelector(".qts-dialog-group")
+    const scopeInputs = [...overlay.querySelectorAll('input[name="qts-scope"]')]
+    for (const input of scopeInputs) {
+      input.addEventListener("change", () => {
+        count.textContent = (input.value === "all" ? allSelection.tabs.length : currentSelection.tabs.length) + " 个标签页"
+      })
+    }
+    overlay.querySelector(".qts-dialog-new-group")?.addEventListener("click", async () => {
+      const name = window.prompt("新建分组名称")
+      if (name === null) return
+      try {
+        const group = await createEmptyGroup(name)
+        if (![...groupSelect.options].some(option => option.value === group.id)) {
+          groupSelect.add(new Option(`${group.name}（0）`, group.id))
+        }
+        groupSelect.value = group.id
+      } catch (error) {
+        showToast(error?.message || "新建失败")
+      }
+    })
     cancel.addEventListener("click", () => overlay.remove())
     overlay.addEventListener("click", event => { if (event.target === overlay) overlay.remove() })
     save.addEventListener("click", async () => {
       cancel.disabled = true
       save.disabled = true
       try {
-        await saveTabs(tabs, currentId, groupId, checkbox.checked)
+        const scope = scopeInputs.find(input => input.checked)?.value || "current"
+        const selection = scope === "all" ? allSelection : currentSelection
+        await saveTabs(selection.tabs, selection.currentId, kind === "group" ? groupSelect.value : null, closeAfter.checked)
         overlay.remove()
       } catch (error) {
         showToast(error?.message || "收藏失败")
@@ -276,11 +340,6 @@
       }
     })
     document.documentElement.appendChild(overlay)
-  }
-
-  async function openSaveDialog(mode, groupId = null) {
-    const selection = await tabsForMode(mode)
-    showSaveDialog({ ...selection, groupId })
   }
 
   async function saveToDefault() {
@@ -397,6 +456,12 @@
 #${DIALOG_ID}{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.34);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#111;}
 #${DIALOG_ID} .qts-dialog-card{width:min(340px,calc(100vw - 48px));padding:24px 20px 18px;border-radius:24px;background:rgba(248,248,248,.96);-webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);box-shadow:0 20px 60px rgba(0,0,0,.28);}
 #${DIALOG_ID} .qts-dialog-title{font-size:24px;font-weight:700;line-height:30px;}
+#${DIALOG_ID} .qts-dialog-section-title{margin-top:18px;margin-bottom:6px;font-size:13px;font-weight:600;color:#8E8E93;}
+#${DIALOG_ID} .qts-dialog-choice{display:flex;align-items:center;gap:11px;padding:9px 0;font-size:17px;}
+#${DIALOG_ID} .qts-dialog-choice input{width:22px;height:22px;margin:0;accent-color:#7C4DFF;}
+#${DIALOG_ID} .qts-dialog-group-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+#${DIALOG_ID} .qts-dialog-group{min-width:0;flex:1;height:46px;padding:0 12px;border:0;border-radius:12px;background:#E5E5EA;color:#111;font-size:16px;}
+#${DIALOG_ID} .qts-dialog-new-group{width:46px;height:46px;border:0;border-radius:12px;background:#E5E5EA;color:#007AFF;font-size:24px;}
 #${DIALOG_ID} .qts-dialog-count{margin-top:16px;font-size:18px;color:#8E8E93;}
 #${DIALOG_ID} .qts-dialog-option{display:flex;align-items:center;gap:12px;margin:22px 0;font-size:17px;}
 #${DIALOG_ID} .qts-dialog-option input{width:24px;height:24px;margin:0;accent-color:#7C4DFF;}
@@ -405,7 +470,7 @@
 #${DIALOG_ID} .qts-dialog-cancel{background:#E5E5EA;color:#111;}
 #${DIALOG_ID} .qts-dialog-save{background:#7C4DFF;color:#fff;}
 #${DIALOG_ID} button:disabled{opacity:.55;}
-@media (prefers-color-scheme:dark){#${BUTTON_ID}{background:rgba(44,44,46,.82);color:rgba(255,255,255,.94);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#${BUTTON_ID}[data-saved="true"]{color:#30D158;}#${PICKER_ID}{background:rgba(28,28,30,.78);border-color:rgba(255,255,255,.12);color:#fff;}#${PICKER_ID} .qts-title{color:#98989F;}#${DIALOG_ID}{color:#fff;}#${DIALOG_ID} .qts-dialog-card{background:rgba(28,28,30,.96);}#${DIALOG_ID} .qts-dialog-cancel{background:#3A3A3C;color:#fff;}}
+@media (prefers-color-scheme:dark){#${BUTTON_ID}{background:rgba(44,44,46,.82);color:rgba(255,255,255,.94);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#${BUTTON_ID}[data-saved="true"]{color:#30D158;}#${PICKER_ID}{background:rgba(28,28,30,.78);border-color:rgba(255,255,255,.12);color:#fff;}#${PICKER_ID} .qts-title{color:#98989F;}#${DIALOG_ID}{color:#fff;}#${DIALOG_ID} .qts-dialog-card{background:rgba(28,28,30,.96);}#${DIALOG_ID} .qts-dialog-cancel,#${DIALOG_ID} .qts-dialog-group,#${DIALOG_ID} .qts-dialog-new-group{background:#3A3A3C;color:#fff;}#${DIALOG_ID} .qts-dialog-new-group{color:#0A84FF;}}
 `
     ;(document.head || document.documentElement).appendChild(style)
   }
@@ -581,104 +646,11 @@
   }
 
   async function showActionPicker() {
-    const current = document.getElementById(PICKER_ID)
-    if (current) {
-      current.remove()
-      return
-    }
-    const picker = document.createElement("div")
-    picker.id = PICKER_ID
-    picker.addEventListener("click", event => event.stopPropagation())
-
-    const title = document.createElement("div")
-    title.className = "qts-title"
-    title.textContent = "收藏成功后关闭标签页"
-    picker.appendChild(title)
-
-    const actions = [
-      { title: "收藏当前标签页", mode: "current" },
-      { title: "收藏全部标签页", mode: "all" },
-    ]
-    for (const action of actions) {
-      const row = document.createElement("button")
-      row.type = "button"
-      row.innerHTML = `<span>${action.title}</span><span class="qts-count">›</span>`
-      row.addEventListener("click", async event => {
-        event.preventDefault()
-        event.stopPropagation()
-        for (const item of picker.querySelectorAll("button")) item.disabled = true
-        try {
-          await openSaveDialog(action.mode)
-          picker.remove()
-        } catch (error) {
-          showToast(error?.message || "收藏失败")
-          for (const item of picker.querySelectorAll("button")) item.disabled = false
-        }
-      })
-      picker.appendChild(row)
-    }
-
-    document.documentElement.appendChild(picker)
-    positionPicker(picker)
-    setTimeout(() => document.addEventListener("click", closeGroupPicker, { once: true }), 0)
+    await showSaveDialog("scope")
   }
 
   async function showGroupPicker() {
-    const current = document.getElementById(PICKER_ID)
-    if (current) {
-      current.remove()
-      return
-    }
-    const { file } = storePath()
-    const store = await loadStore(file)
-    const groups = sortGroups(ensureGroups(store))
-    const picker = document.createElement("div")
-    picker.id = PICKER_ID
-    picker.addEventListener("click", event => event.stopPropagation())
-    const title = document.createElement("div")
-    title.className = "qts-title"
-    title.textContent = groups.length ? "收藏到标签组" : "还没有分组"
-    picker.appendChild(title)
-    for (const group of groups) {
-      const row = document.createElement("button")
-      row.type = "button"
-      row.innerHTML = `<span>${escapeHtml(group.name || DEFAULT_GROUP_NAME)}</span><span class="qts-count">${Array.isArray(group.bookmarks) ? group.bookmarks.length : 0}</span>`
-      row.addEventListener("click", async event => {
-        event.preventDefault()
-        event.stopPropagation()
-        row.disabled = true
-        try {
-          await openSaveDialog("current", group.id)
-          picker.remove()
-        } catch (error) {
-          showToast(error?.message || "收藏失败")
-          row.disabled = false
-        }
-      })
-      picker.appendChild(row)
-    }
-    const create = document.createElement("button")
-    create.type = "button"
-    create.className = "qts-create"
-    create.textContent = "＋ 新建分组"
-    create.addEventListener("click", async event => {
-      event.preventDefault()
-      event.stopPropagation()
-      const name = window.prompt("新建分组名称")
-      if (name === null) return
-      create.disabled = true
-      try {
-        await createGroupAndSave(name)
-        picker.remove()
-      } catch (error) {
-        showToast(error?.message || "新建失败")
-        create.disabled = false
-      }
-    })
-    picker.appendChild(create)
-    document.documentElement.appendChild(picker)
-    positionPicker(picker)
-    setTimeout(() => document.addEventListener("click", closeGroupPicker, { once: true }), 0)
+    await showSaveDialog("group")
   }
 
   function escapeHtml(text) {
