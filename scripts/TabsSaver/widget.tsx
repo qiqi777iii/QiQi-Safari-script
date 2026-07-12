@@ -7,10 +7,17 @@ type RecentBookmark = {
 }
 
 function recentBookmarks(store: Store): RecentBookmark[] {
-  return store.groups
-    .flatMap(group => group.bookmarks.map(bookmark => ({ bookmark, groupName: group.name })))
-    .sort((a, b) => b.bookmark.savedAt - a.bookmark.savedAt)
-    .slice(0, 3)
+  const recent: RecentBookmark[] = []
+  for (const group of store.groups) {
+    for (const bookmark of group.bookmarks) {
+      const item = { bookmark, groupName: group.name }
+      const index = recent.findIndex(existing => bookmark.savedAt > existing.bookmark.savedAt)
+      if (index < 0) recent.push(item)
+      else recent.splice(index, 0, item)
+      if (recent.length > 3) recent.pop()
+    }
+  }
+  return recent
 }
 
 function SmallWidget({ store }: { store: Store }) {

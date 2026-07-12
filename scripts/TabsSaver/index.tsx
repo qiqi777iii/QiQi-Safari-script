@@ -560,7 +560,7 @@ function MainView() {
     setSorting(false)
   }
 
-  function onMoveGroups(indices: number[], newOffset: number) {
+  async function onMoveGroups(indices: number[], newOffset: number) {
     const arr = [...sortList]
     const moving = indices.map(i => arr[i])
     const remaining = arr.filter((_, i) => !indices.includes(i))
@@ -569,7 +569,7 @@ function MainView() {
     remaining.splice(insertAt, 0, ...moving)
     setSortList(remaining)
     applyGroupOrder(store, remaining.map(g => g.id))
-    saveStore(store)
+    await saveStore(store)
     setStore({ ...store })
   }
 

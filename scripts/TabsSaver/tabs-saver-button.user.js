@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 0.2.23
+// @version 0.2.24
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -111,7 +111,8 @@
   }
 
   async function saveStore(file, store) {
-    await Scripting.FileManager.writeAsString(file, JSON.stringify(store, null, 2))
+    store.updatedAt = now()
+    await Scripting.FileManager.writeAsString(file, JSON.stringify(store))
   }
 
   function ensureGroups(store) {
@@ -209,15 +210,19 @@
     return failed
   }
 
-  async function tabsForMode(mode) {
-    const current = await currentSafariTab()
-    const tabs = mode === "all"
-      ? (await Scripting.tabs.query())
-          .filter(tab => /^https?:\/\//i.test(tab?.url || ""))
-          .sort((a, b) => a.windowId - b.windowId || a.index - b.index)
-      : [current]
-    if (!tabs.length) throw new Error("没有可收藏的网页标签页")
-    return { tabs, currentId: current?.id }
+  async function tabSelections() {
+    const [current, queriedTabs] = await Promise.all([
+      currentSafariTab(),
+      Scripting.tabs.query(),
+    ])
+    const all = queriedTabs
+      .filter(tab => /^https?:\/\//i.test(tab?.url || ""))
+      .sort((a, b) => a.windowId - b.windowId || a.index - b.index)
+    if (!all.length && !current) throw new Error("没有可收藏的网页标签页")
+    return {
+      current: { tabs: [current], currentId: current?.id },
+      all: { tabs: all.length ? all : [current], currentId: current?.id },
+    }
   }
 
   async function saveTabs(tabs, currentId, groupId, closeAfter) {
@@ -258,12 +263,16 @@
     document.getElementById(DIALOG_ID)?.remove()
     document.getElementById(PICKER_ID)?.remove()
 
-    const currentSelection = await tabsForMode("current")
-    const allSelection = await tabsForMode("all")
     const { file } = storePath()
-    const store = await loadStore(file)
+    const [selections, store] = await Promise.all([
+      tabSelections(),
+      loadStore(file),
+    ])
+    const currentSelection = selections.current
+    const allSelection = selections.all
+    const groupCount = ensureGroups(store).length
     ensureDefaultGroup(store)
-    await saveStore(file, store)
+    if (ensureGroups(store).length !== groupCount) await saveStore(file, store)
     const groups = sortGroups(ensureGroups(store))
     const currentId = currentSelection.currentId
 
