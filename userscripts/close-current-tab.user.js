@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         关闭当前标签页
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.0
+// @version      1.0.1
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/close-current-tab.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/close-current-tab.user.js
 // @description  在标签页收藏按钮左侧显示关闭按钮，点击即可关闭当前 Safari 标签页。
@@ -9,6 +9,7 @@
 // @match        https://*/*
 // @run-at       document-start
 // @grant        GM.closeTab
+// @grant        Scripting.tabs
 // ==/UserScript==
 
 (() => {
@@ -82,7 +83,9 @@
     closing = true
     button.disabled = true
     try {
-      await GM.closeTab()
+      const current = await Scripting.tabs.getCurrent()
+      if (!Number.isInteger(current?.id)) throw new Error("无法获取当前标签页 ID")
+      await GM.closeTab(current.id)
     } catch (error) {
       closing = false
       button.disabled = false
