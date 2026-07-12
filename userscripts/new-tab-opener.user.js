@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.58
+// @version      1.0.59
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -16,15 +16,15 @@
     'use strict';
 
     const KEY = '__tb_';
-    const BTN_SIZE = 30;
-    const BOTTOM_GAP = 0;
+    const BTN_SIZE = 35;
+    const BOTTOM_GAP = 10;
     const LINK_PAGER_GAP = 4;
     const PAGER_RIGHT_GAP = 16;
-    const PAGER_HEIGHT = 30;
+    const PAGER_HEIGHT = 35;
     const DEFAULT_BOTTOM = BOTTOM_GAP + (PAGER_HEIGHT - BTN_SIZE) / 2;
     const FALLBACK_PAGER_WIDTH = 148;
     const DEFAULT_RIGHT = PAGER_RIGHT_GAP + FALLBACK_PAGER_WIDTH + LINK_PAGER_GAP;
-    const CURRENT_LAYOUT_VERSION = '1.0.58';
+    const CURRENT_LAYOUT_VERSION = '1.0.59';
 
     const COLOR_ON = '#0A84FF';
     const COLOR_OFF = 'rgba(28,28,30,.82)';
