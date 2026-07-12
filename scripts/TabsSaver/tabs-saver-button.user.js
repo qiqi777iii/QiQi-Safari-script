@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 0.2.28
+// @version 0.2.29
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -24,11 +24,11 @@
 
   // 悬浮翻页胶囊 id：默认把收藏按钮排在它左侧。
   const PAGER_ID = "universal-pagination-floating-menu"
-  const LAYOUT_VERSION = "0.2.28"
+  const LAYOUT_VERSION = "0.2.29"
   const NEIGHBOR_GAP = 4
   // 没有新标签按钮时（新用户/只装了 Tab）：居右边框 40px。
   const FALLBACK_RIGHT = 40
-  const BOTTOM_GAP = 10
+  const BOTTOM_GAP = 25
 
   const LS_KEY = "qiqi_tab_"
 
