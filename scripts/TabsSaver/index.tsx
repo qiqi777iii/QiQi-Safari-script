@@ -131,10 +131,17 @@ const GROUP_SEPARATOR_KEY = "tab.showGroupSeparators"
 const TRASH_RETENTION_KEY = "tab.trashRetentionDays"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.4.7"
+const APP_VERSION = "1.4.8"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.4.8",
+    date: "2026-07-12",
+    items: [
+      "主界面分组分割线改为横跨整行，分组图标和文字位置保持不变。",
+    ],
+  },
   {
     version: "1.4.7",
     date: "2026-07-12",
@@ -844,7 +851,7 @@ function MainView() {
                 <NavigationLink
                   key={g.id}
                   destination={<GroupView groupId={g.id} />}
-                  listRowInsets={{ top: -10, leading: 16, bottom: -10, trailing: 16 }}
+                  listRowInsets={{ top: -10, leading: 0, bottom: -10, trailing: 0 }}
                   controlSize="small"
                   buttonStyle="plain"
                   listRowSeparator={
@@ -891,7 +898,7 @@ function MainView() {
                     ],
                   }}
                 >
-                  <HStack frame={{ minHeight: 34 }}>
+                  <HStack frame={{ minHeight: 34 }} padding={{ horizontal: 16 }}>
                     <Image
                       systemName="folder"
                       foregroundStyle="systemBlue"
