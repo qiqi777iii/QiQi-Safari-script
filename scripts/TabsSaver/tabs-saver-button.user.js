@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 0.2.24
+// @version 0.2.25
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -630,7 +630,10 @@
       lsSet("top", savedPosition.top)
       return
     }
-    showSaveDialog().catch(error => showToast(error?.message || "操作失败"))
+    const action = button?.dataset.saved === "true"
+      ? removeCurrentPage()
+      : showSaveDialog()
+    action.catch(error => showToast(error?.message || "操作失败"))
   }
 
   function setSavedVisual(saved) {
