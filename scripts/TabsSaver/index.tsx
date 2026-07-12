@@ -131,10 +131,17 @@ const GROUP_SEPARATOR_KEY = "tab.showGroupSeparators"
 const TRASH_RETENTION_KEY = "tab.trashRetentionDays"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.4.0"
+const APP_VERSION = "1.4.1"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.4.1",
+    date: "2026-07-12",
+    items: [
+      "移动单条或多条收藏时，可直接新建目标分组并完成移动。",
+    ],
+  },
   {
     version: "1.4.0",
     date: "2026-07-12",
@@ -1379,20 +1386,34 @@ function GroupView({ groupId }: { groupId: string }) {
     setSelected(selected.filter(id => id !== bookmarkId))
   }
 
+  async function chooseMoveTarget(title: string): Promise<Group | null> {
+    if (!group) return null
+    const targets = sortedGroups(store).filter(target => target.id !== group.id)
+    const index = await Dialog.actionSheet({
+      title,
+      message: "选择目标分组",
+      actions: [
+        { label: "＋ 新建分组" },
+        ...targets.map(target => ({ label: target.name })),
+      ],
+    })
+    if (index == null) return null
+    if (index > 0) return targets[index - 1] ?? null
+
+    const name = await Dialog.prompt({
+      title: "新建分组",
+      message: "输入分组名称",
+    })
+    const trimmed = name?.trim() ?? ""
+    if (trimmed === "") return null
+    return createGroup(store, trimmed)
+  }
+
   async function onMove(bookmarkId: string) {
     if (!group) return
-    const targets = sortedGroups(store).filter(g => g.id !== group.id)
-    if (targets.length === 0) {
-      await Dialog.alert({ title: "没有其他分组", message: "请先新建一个目标分组。" })
-      return
-    }
-    const index = await Dialog.actionSheet({
-      title: "移动到分组",
-      message: "选择目标分组",
-      actions: targets.map(target => ({ label: target.name })),
-    })
-    if (index == null || !targets[index]) return
-    if (moveBookmark(store, group.id, bookmarkId, targets[index].id)) {
+    const target = await chooseMoveTarget("移动到分组")
+    if (!target) return
+    if (moveBookmark(store, group.id, bookmarkId, target.id)) {
       await saveStore(store)
       setStore({ ...store })
     }
@@ -1446,18 +1467,9 @@ function GroupView({ groupId }: { groupId: string }) {
 
   async function moveSelected() {
     if (!group || selected.length === 0) return
-    const targets = sortedGroups(store).filter(target => target.id !== group.id)
-    if (targets.length === 0) {
-      await Dialog.alert({ title: "没有其他分组", message: "请先新建一个目标分组。" })
-      return
-    }
-    const index = await Dialog.actionSheet({
-      title: `移动 ${selected.length} 条收藏`,
-      message: "选择目标分组",
-      actions: targets.map(target => ({ label: target.name })),
-    })
-    if (index == null || !targets[index]) return
-    const moved = moveBookmarks(store, group.id, selected, targets[index].id)
+    const target = await chooseMoveTarget(`移动 ${selected.length} 条收藏`)
+    if (!target) return
+    const moved = moveBookmarks(store, group.id, selected, target.id)
     if (moved === 0) return
     await saveStore(store)
     setStore({ ...store })
