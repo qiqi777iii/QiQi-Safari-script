@@ -146,6 +146,12 @@ function backupName(date = new Date()): string {
   return `store-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}-${date.getMilliseconds()}.json`
 }
 
+function backupDisplayName(name: string): string {
+  const match = name.match(/^store-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(?:-\d+)?\.json$/)
+  if (!match) return name.replace(/^store-/, "").replace(/\.json$/, "")
+  return `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}:${match[6]}`
+}
+
 export function summarizeStore(store: Store): StoreSummary {
   const groups = Array.isArray(store.groups) ? store.groups : []
   const bookmarks = groups.reduce(
@@ -589,7 +595,7 @@ export async function listCloudBackups(limit = 100): Promise<CloudBackup[]> {
   }
   return loaded.map((backup, index) => ({
     path: backup.path,
-    name: backup.name,
+    name: backupDisplayName(backup.name),
     summary: summarizeStore(backup.store),
     source: "webdav" as const,
     sizeBytes: backup.sizeBytes,

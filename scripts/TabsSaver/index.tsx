@@ -62,6 +62,7 @@ import {
   listCloudBackups,
   restoreCloudBackup,
   getLocalCurrentVersion,
+  getCloudCurrentVersion,
   deleteCloudBackup,
   getSyncMeta,
   formatSyncStatus,
@@ -131,10 +132,18 @@ const GROUP_SEPARATOR_KEY = "tab.showGroupSeparators"
 const TRASH_RETENTION_KEY = "tab.trashRetentionDays"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.4.2"
+const APP_VERSION = "1.4.3"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.4.3",
+    date: "2026-07-12",
+    items: [
+      "WebDAV 恢复页新增当前 WebDAV 版本，上传后可直接核对其与当前本机的数据。",
+      "历史备份名称只显示日期和时间，不再显示 store 前缀、毫秒和文件扩展名。",
+    ],
+  },
   {
     version: "1.4.2",
     date: "2026-07-12",
@@ -1039,6 +1048,7 @@ function VersionHistoryView() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [local, setLocal] = useState<CloudBackup | null>(null)
+  const [cloudCurrent, setCloudCurrent] = useState<CloudBackup | null>(null)
   const [backups, setBackups] = useState<CloudBackup[]>([])
   const [undoInfo, setUndoInfo] = useState<RestoreUndoMeta | null>(null)
   const [selecting, setSelecting] = useState(false)
@@ -1049,9 +1059,11 @@ function VersionHistoryView() {
   async function reloadVersions() {
     setLoading(true)
     const localVersion = await getLocalCurrentVersion()
+    const currentVersion = await getCloudCurrentVersion()
     const history = await listCloudBackups(100)
     const undo = await getRestoreUndoInfo()
     setLocal(localVersion)
+    setCloudCurrent(currentVersion)
     setBackups(history)
     setUndoInfo(undo)
     setSelected(selected.filter(path => history.some((backup: CloudBackup) => backup.path === path)))
@@ -1072,7 +1084,9 @@ function VersionHistoryView() {
     if (!ok) return
 
     setBusy(true)
-    const restored = await restoreCloudBackup(version.path)
+    const restored = version.current
+      ? await pullFromCloud()
+      : await restoreCloudBackup(version.path)
     setBusy(false)
 
     if (!restored.ok) {
@@ -1329,6 +1343,16 @@ function VersionHistoryView() {
                 </HStack>
               </Section>
             ) : null}
+
+            {cloudCurrent ? (
+              <Section header={<Text>当前 WebDAV</Text>}>
+                {versionRow(cloudCurrent, "externaldrive.badge.icloud", "systemBlue")}
+              </Section>
+            ) : (
+              <Section header={<Text>当前 WebDAV</Text>}>
+                <Text foregroundStyle="secondaryLabel">WebDAV 暂无当前数据</Text>
+              </Section>
+            )}
 
             {undoInfo ? (
               <Section
