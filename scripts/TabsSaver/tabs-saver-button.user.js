@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 0.2.20
-// @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并在保存成功后关闭标签页。
+// @version 0.2.21
+// @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
 // @run-at document-end
@@ -17,6 +17,7 @@
   const BUTTON_ID = "qiqi-tab-save-button"
   const PICKER_ID = "qiqi-tab-save-picker"
   const TOAST_ID = "qiqi-tab-save-toast"
+  const DIALOG_ID = "qiqi-tab-save-dialog"
   const STORE_FILE_NAME = "tabs-saver-store.json"
   const DEFAULT_GROUP_NAME = "默认"
   const BTN_SIZE = 30
@@ -209,26 +210,77 @@
     return failed
   }
 
-  async function saveTabsAndClose(mode) {
+  async function tabsForMode(mode) {
     const current = await currentSafariTab()
-    let tabs
-    if (mode === "all") {
-      tabs = (await Scripting.tabs.query())
-        .filter(tab => /^https?:\/\//i.test(tab?.url || ""))
-        .sort((a, b) => a.windowId - b.windowId || a.index - b.index)
-    } else {
-      tabs = [current]
-    }
+    const tabs = mode === "all"
+      ? (await Scripting.tabs.query())
+          .filter(tab => /^https?:\/\//i.test(tab?.url || ""))
+          .sort((a, b) => a.windowId - b.windowId || a.index - b.index)
+      : [current]
     if (!tabs.length) throw new Error("没有可收藏的网页标签页")
+    return { tabs, currentId: current?.id }
+  }
 
+  async function saveTabs(tabs, currentId, groupId, closeAfter) {
     const { file } = storePath()
     const store = await loadStore(file)
-    const group = ensureDefaultGroup(store)
+    const group = groupId
+      ? ensureGroups(store).find(item => item && item.id === groupId)
+      : ensureDefaultGroup(store)
+    if (!group) throw new Error("分组不存在，请刷新页面后重试")
+
     const added = addTabsToGroup(group, tabs)
     if (added > 0) await saveStore(file, store)
+    if (!closeAfter) {
+      showToast(added > 0 ? `已收藏 ${added} 个标签页` : "已收藏过")
+      setSavedVisual(true)
+      return
+    }
 
-    const failed = await closeSavedTabs(tabs, current?.id)
+    const failed = await closeSavedTabs(tabs, currentId)
     if (failed > 0) throw new Error(`已收藏，${failed} 个标签页关闭失败`)
+  }
+
+  function showSaveDialog({ tabs, currentId, groupId = null }) {
+    document.getElementById(DIALOG_ID)?.remove()
+    const overlay = document.createElement("div")
+    overlay.id = DIALOG_ID
+    overlay.innerHTML = `
+      <div class="qts-dialog-card" role="dialog" aria-modal="true" aria-label="保存会话">
+        <div class="qts-dialog-title">保存会话</div>
+        <div class="qts-dialog-count">${tabs.length} 个标签页</div>
+        <label class="qts-dialog-option">
+          <input type="checkbox">
+          <span>保存后关闭标签页</span>
+        </label>
+        <div class="qts-dialog-actions">
+          <button type="button" class="qts-dialog-cancel">取消</button>
+          <button type="button" class="qts-dialog-save">保存</button>
+        </div>
+      </div>`
+    const cancel = overlay.querySelector(".qts-dialog-cancel")
+    const save = overlay.querySelector(".qts-dialog-save")
+    const checkbox = overlay.querySelector('input[type="checkbox"]')
+    cancel.addEventListener("click", () => overlay.remove())
+    overlay.addEventListener("click", event => { if (event.target === overlay) overlay.remove() })
+    save.addEventListener("click", async () => {
+      cancel.disabled = true
+      save.disabled = true
+      try {
+        await saveTabs(tabs, currentId, groupId, checkbox.checked)
+        overlay.remove()
+      } catch (error) {
+        showToast(error?.message || "收藏失败")
+        cancel.disabled = false
+        save.disabled = false
+      }
+    })
+    document.documentElement.appendChild(overlay)
+  }
+
+  async function openSaveDialog(mode, groupId = null) {
+    const selection = await tabsForMode(mode)
+    showSaveDialog({ ...selection, groupId })
   }
 
   async function saveToDefault() {
@@ -342,7 +394,18 @@
 #${PICKER_ID} .qts-create{color:#007AFF;font-weight:600;justify-content:flex-start;}
 #${PICKER_ID} .qts-count{font-size:12px;color:#8E8E93;font-weight:500;}
 #${TOAST_ID}{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:2147483647;padding:8px 12px;border-radius:999px;background:rgba(0,0,0,.76);color:white;font:14px/18px -apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.18);opacity:0;transition:opacity .2s;pointer-events:none;}
-@media (prefers-color-scheme:dark){#${BUTTON_ID}{background:rgba(44,44,46,.82);color:rgba(255,255,255,.94);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#${BUTTON_ID}[data-saved="true"]{color:#30D158;}#${PICKER_ID}{background:rgba(28,28,30,.78);border-color:rgba(255,255,255,.12);color:#fff;}#${PICKER_ID} .qts-title{color:#98989F;}}
+#${DIALOG_ID}{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.34);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#111;}
+#${DIALOG_ID} .qts-dialog-card{width:min(340px,calc(100vw - 48px));padding:24px 20px 18px;border-radius:24px;background:rgba(248,248,248,.96);-webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);box-shadow:0 20px 60px rgba(0,0,0,.28);}
+#${DIALOG_ID} .qts-dialog-title{font-size:24px;font-weight:700;line-height:30px;}
+#${DIALOG_ID} .qts-dialog-count{margin-top:16px;font-size:18px;color:#8E8E93;}
+#${DIALOG_ID} .qts-dialog-option{display:flex;align-items:center;gap:12px;margin:22px 0;font-size:17px;}
+#${DIALOG_ID} .qts-dialog-option input{width:24px;height:24px;margin:0;accent-color:#7C4DFF;}
+#${DIALOG_ID} .qts-dialog-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+#${DIALOG_ID} .qts-dialog-actions button{height:52px;border:0;border-radius:14px;font-size:18px;font-weight:600;}
+#${DIALOG_ID} .qts-dialog-cancel{background:#E5E5EA;color:#111;}
+#${DIALOG_ID} .qts-dialog-save{background:#7C4DFF;color:#fff;}
+#${DIALOG_ID} button:disabled{opacity:.55;}
+@media (prefers-color-scheme:dark){#${BUTTON_ID}{background:rgba(44,44,46,.82);color:rgba(255,255,255,.94);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#${BUTTON_ID}[data-saved="true"]{color:#30D158;}#${PICKER_ID}{background:rgba(28,28,30,.78);border-color:rgba(255,255,255,.12);color:#fff;}#${PICKER_ID} .qts-title{color:#98989F;}#${DIALOG_ID}{color:#fff;}#${DIALOG_ID} .qts-dialog-card{background:rgba(28,28,30,.96);}#${DIALOG_ID} .qts-dialog-cancel{background:#3A3A3C;color:#fff;}}
 `
     ;(document.head || document.documentElement).appendChild(style)
   }
@@ -545,7 +608,7 @@
         event.stopPropagation()
         for (const item of picker.querySelectorAll("button")) item.disabled = true
         try {
-          await saveTabsAndClose(action.mode)
+          await openSaveDialog(action.mode)
           picker.remove()
         } catch (error) {
           showToast(error?.message || "收藏失败")
@@ -585,7 +648,7 @@
         event.stopPropagation()
         row.disabled = true
         try {
-          await saveToGroup(group.id)
+          await openSaveDialog("current", group.id)
           picker.remove()
         } catch (error) {
           showToast(error?.message || "收藏失败")
