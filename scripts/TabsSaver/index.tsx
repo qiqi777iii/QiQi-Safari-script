@@ -127,14 +127,21 @@ function dayLabel(ts: number): string {
 
 type DaySection = { key: number; label: string; items: Bookmark[] }
 
-const GROUP_SEPARATOR_KEY = "tab.showGroupSeparators"
 const TRASH_RETENTION_KEY = "tab.trashRetentionDays"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.4.7"
+const APP_VERSION = "1.5.13"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.5.13",
+    date: "2026-07-13",
+    items: [
+      "移除标签页管理菜单中的显示设置，分组列表统一显示分割线。",
+      "内置 Safari 浏览器脚本与 Scripting 脚本统一使用同一个版本号。",
+    ],
+  },
   {
     version: "1.4.7",
     date: "2026-07-12",
@@ -331,7 +338,7 @@ const GUIDE_MESSAGE = [
   "• 也可以用系统分享菜单，把链接分享到「标签页收藏」来添加。",
   "• 回到本 App 查看：收藏按分组和收藏夹整理，并按日期分段。点一下用 Safari 打开，长按可复制链接或删除。",
   "• 在分组里：左滑删除，右滑加星标到「收藏」。",
-  "• 右上角「…」菜单：新建分组、排序、显示/隐藏分割线、WebDAV 同步。点击列表上方的同步状态也能立即同步。",
+  "• 右上角「…」菜单：新建分组、回收站、WebDAV 同步和关于与更新。长按任意分组可排序分组。点击列表上方的同步状态也能立即同步。",
 ].join("\n\n")
 
 async function showGuide() {
@@ -389,15 +396,6 @@ async function installBundledBrowserScript(): Promise<string | null> {
   }
 }
 
-function getShowGroupSeparators(): boolean {
-  const value = Storage.get<boolean>(GROUP_SEPARATOR_KEY)
-  return value !== false
-}
-
-function setShowGroupSeparators(value: boolean) {
-  Storage.set(GROUP_SEPARATOR_KEY, value)
-}
-
 function getTrashRetentionDays(): TrashRetentionDays {
   const value = Storage.get<number>(TRASH_RETENTION_KEY)
   return value === 7 || value === 30 || value === 90 ? value : 0
@@ -451,10 +449,6 @@ function MainView() {
   const [autoProvider, setAutoProvider] = useState<AutoSyncProvider | null>(() =>
     getAutoSyncProvider(),
   )
-  const [showGroupSeparators, setShowGroupSeparatorsState] = useState<boolean>(() =>
-    getShowGroupSeparators(),
-  )
-  const [displayRevision, setDisplayRevision] = useState(0)
 
   async function reload() {
     const s = await loadStore()
@@ -535,13 +529,6 @@ function MainView() {
     setAutoProvider(getAutoSyncProvider())
     setAutoInterval(getAutoSyncInterval())
     setSyncMeta(getSyncMeta())
-  }
-
-  function onToggleGroupSeparators() {
-    const next = !showGroupSeparators
-    setShowGroupSeparators(next)
-    setShowGroupSeparatorsState(next)
-    setDisplayRevision(displayRevision + 1)
   }
 
   async function persist() {
@@ -681,7 +668,6 @@ function MainView() {
   return (
     <NavigationStack>
       <List
-        key={`main-list-${showGroupSeparators ? "lines" : "plain"}-${displayRevision}`}
         navigationTitle=""
         navigationBarTitleDisplayMode="inline"
         listSectionSpacing="compact"
@@ -741,13 +727,6 @@ function MainView() {
                   systemImage="doc.text.magnifyingglass"
                   disabled
                   action={() => {}}
-                />
-              </Menu>
-              <Menu title="显示设置" systemImage="textformat.size">
-                <Button
-                  title={showGroupSeparators ? "隐藏分割线" : "显示分割线"}
-                  systemImage={showGroupSeparators ? "line.3.horizontal.decrease" : "line.3.horizontal"}
-                  action={onToggleGroupSeparators}
                 />
               </Menu>
               <Menu title="关于与更新" systemImage="info.circle">
@@ -849,7 +828,7 @@ function MainView() {
                   controlSize="small"
                   buttonStyle="plain"
                   listRowSeparator={
-                    showGroupSeparators && gi < groups.length - 1
+                    gi < groups.length - 1
                       ? { visibility: "visible", edges: "bottom" }
                       : "hidden"
                   }
