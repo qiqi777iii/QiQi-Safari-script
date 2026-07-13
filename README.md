@@ -23,8 +23,8 @@
 
 | 脚本包 | 用途 | 项目链接 |
 | --- | --- | --- |
-| Claude额度 | 查看 Claude 使用额度。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/Claude%E9%A2%9D%E5%BA%A6) |
-| Codex额度 | 查看 Codex 使用额度。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/Codex%E9%A2%9D%E5%BA%A6) |
+| Claude额度 | 查看 Claude 使用额度。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/ClaudeUsage) |
+| Codex额度 | 查看 Codex 使用额度。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/CodexUsage) |
 | IP查询 | 通过 IPLark 查询当前出口或指定 IP，并提供桌面小组件。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/IPQuery) |
 | 标签页收藏 | 收藏与分组管理 Safari 标签页，并通过 WebDAV 同步和恢复历史快照。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/TabsSaver) |
 | 翻译器 | 支持系统翻译、Apple Intelligence、Google 网页翻译和可配置 AI 接口。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/Translator) |
