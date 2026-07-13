@@ -130,10 +130,17 @@ type DaySection = { key: number; label: string; items: Bookmark[] }
 const TRASH_RETENTION_KEY = "tab.trashRetentionDays"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "1.5.13"
+const APP_VERSION = "1.5.14"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "1.5.14",
+    date: "2026-07-13",
+    items: [
+      "回收站保留期限调整为 3 天、7 天、15 天和永久。",
+    ],
+  },
   {
     version: "1.5.13",
     date: "2026-07-13",
@@ -398,7 +405,13 @@ async function installBundledBrowserScript(): Promise<string | null> {
 
 function getTrashRetentionDays(): TrashRetentionDays {
   const value = Storage.get<number>(TRASH_RETENTION_KEY)
-  return value === 7 || value === 30 || value === 90 ? value : 0
+  if (value === 3 || value === 7 || value === 15) return value
+  // 将旧版的 30 天或 90 天设置迁移为新的最长保留期限。
+  if (value === 30 || value === 90) {
+    Storage.set(TRASH_RETENTION_KEY, 15)
+    return 15
+  }
+  return 0
 }
 
 function setTrashRetentionDays(value: TrashRetentionDays) {
@@ -1835,10 +1848,10 @@ function TrashView() {
                 onChanged={(value: number) => changeRetention(value as TrashRetentionDays)}
                 pickerStyle="menu"
               >
-                <Text tag={0}>永不</Text>
+                <Text tag={3}>3 天</Text>
                 <Text tag={7}>7 天</Text>
-                <Text tag={30}>30 天</Text>
-                <Text tag={90}>90 天</Text>
+                <Text tag={15}>15 天</Text>
+                <Text tag={0}>永久</Text>
               </Picker>
             </Section>
             {items.length === 0 ? (

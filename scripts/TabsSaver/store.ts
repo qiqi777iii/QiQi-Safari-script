@@ -152,7 +152,7 @@ export function removeGroup(store: Store, groupId: string): void {
   store.groups = store.groups.filter(g => g.id !== groupId)
 }
 
-export type TrashRetentionDays = 0 | 7 | 30 | 90
+export type TrashRetentionDays = 0 | 3 | 7 | 15
 
 export function moveBookmarks(
   store: Store,
