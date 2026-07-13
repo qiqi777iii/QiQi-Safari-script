@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.1.4
+// @version      1.1.5
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -143,11 +143,16 @@
         return isPageNumber || hasPageMarker || hasPageUrl;
     }
 
+    function isMissAvPreviewLink(a) {
+        if (!/(^|\.)missav\./i.test(location.hostname) || !a) return false;
+        return Boolean(a.closest?.('.thumbnail') && a.querySelector?.('video.preview'));
+    }
+
     function scanLinks() {
         document.querySelectorAll('a[href]').forEach(function (a) {
             const href = a.getAttribute('href') || '';
             const isHttp = a.href.slice(0, 4) === 'http';
-            const keepSelf = !isHttp || href[0] === '#' || isPaginationLink(a);
+            const keepSelf = !isHttp || href[0] === '#' || isPaginationLink(a) || isMissAvPreviewLink(a);
             a.target = keepSelf || !enabled ? '_self' : '_blank';
             if (enabled && !keepSelf) a.rel = 'noopener';
         });
@@ -302,12 +307,29 @@
         return Math.abs(p.x - genericLinkPointerDownX) > GENERIC_LINK_MOVE_TOLERANCE || Math.abs(p.y - genericLinkPointerDownY) > GENERIC_LINK_MOVE_TOLERANCE;
     }
 
-    function isMissAvPreviewActivation(target, a) {
-        if (!/(^|\.)missav\./i.test(location.hostname) || !a) return false;
-        const card = target?.closest?.('.thumbnail');
-        if (!card || !(card.getAttribute('@click') || '').includes('clickPreview')) return false;
-        const preview = a.querySelector?.('video.preview');
-        return Boolean(preview && preview.classList.contains('hidden'));
+    function getMissAvHiddenPreview(a) {
+        if (!isMissAvPreviewLink(a)) return null;
+        const preview = a.querySelector('video.preview');
+        return preview?.classList.contains('hidden') ? preview : null;
+    }
+
+    function activateMissAvPreview(e, a) {
+        const preview = getMissAvHiddenPreview(a);
+        if (!preview) return false;
+        // 只在最终 click 阶段接管；若在 touchend/pointerup 就显示视频，紧随其后的 click
+        // 会被误判成第二次点击并打开新标签页。
+        if (e.type !== 'click') return true;
+
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const src = preview.getAttribute('src') || preview.getAttribute('data-src');
+        if (src && !preview.getAttribute('src')) preview.setAttribute('src', src);
+        preview.classList.remove('hidden');
+        const image = a.querySelector('img');
+        image?.classList.add('hidden');
+        const task = preview.play?.();
+        if (task && typeof task.catch === 'function') task.catch(function () {});
+        return true;
     }
 
     function shouldOpenNewTab(a) {
@@ -320,9 +342,9 @@
     function handleLinkOpen(e) {
         if (toolbar?.contains(e.target)) return;
         const a = findLinkTarget(e.target);
-        // MissAV 手机端第一次点封面由站点自身 clickPreview 接管并播放预览；
-        // 预览已显示后的再次点击仍按后台新标签页规则打开详情。
-        if (isMissAvPreviewActivation(e.target, a)) return;
+        // MissAV 首次点击封面由本脚本直接启动预览，避免站点事件被过滤器移除时仍落入链接跳转；
+        // 预览已显示后的再次点击继续按后台新标签页规则打开详情。
+        if (activateMissAvPreview(e, a)) return;
         if (!shouldOpenNewTab(a)) return;
 
         // 通用链接只在 click 阶段处理；pointerup/touchend 过早处理会把滑动列表的抬手误判为点击。
