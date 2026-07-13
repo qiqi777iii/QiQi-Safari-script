@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.1.1
+// @version      1.1.2
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -9,8 +9,6 @@
 // @grant        GM.registerMenuCommand
 // @grant        GM.openInTab
 // @run-at       document-start
-// @exclude      https://accounts.google.com/*
-// @exclude      https://accounts.google.com.hk/*
 // ==/UserScript==
 
 (function () {
@@ -79,16 +77,77 @@
         });
     }
 
+    function isPaginationContainer(link) {
+        let node = link;
+        for (let depth = 0; node && depth < 7; depth++, node = node.parentElement) {
+            const className = typeof node.className === 'string' ? node.className : '';
+            const marker = [
+                node.id || '',
+                className,
+                node.getAttribute?.('aria-label') || '',
+                node.getAttribute?.('data-testid') || '',
+            ].join(' ');
+            if (/(^|[\s_-])(pagination|paginator|pager|paging|pagenavi|page-nav|page-navigation|nav-pages|page-numbers)([\s_-]|$)/i.test(marker)) return true;
+            if (node.tagName === 'NAV' && /(page|pagination|pager|分页|分頁|翻页|翻頁)/i.test(marker)) return true;
+        }
+        return false;
+    }
+
+    function isPaginationLink(link) {
+        if (!link) return false;
+
+        let url;
+        try { url = new URL(link.href, location.href); } catch (_) { return false; }
+        if (!/^https?:$/i.test(url.protocol) || url.origin !== location.origin) return false;
+
+        const rel = (link.getAttribute('rel') || '').toLowerCase().split(/\s+/);
+        if (rel.includes('next') || rel.includes('prev')) return true;
+
+        const className = typeof link.className === 'string' ? link.className : '';
+        const structuralMarker = [
+            link.id || '',
+            className,
+            link.getAttribute('data-testid') || '',
+        ].join(' ');
+        const marker = [
+            structuralMarker,
+            link.getAttribute('aria-label') || '',
+            link.getAttribute('title') || '',
+        ].join(' ');
+        const labelCandidates = [
+            link.textContent || '',
+            link.getAttribute('aria-label') || '',
+            link.getAttribute('title') || '',
+        ].map(function (label) {
+            return label.replace(/\s+/g, ' ').replace(/[<>{}\[\]()‹›«»←→]/g, '').trim();
+        }).filter(Boolean);
+
+        const isNamedPager = /(^|[\s_-])(pnnext|pnprev|next|prev|previous|next-page|prev-page|previous-page|page-next|page-prev)([\s_-]|$)/i.test(structuralMarker);
+        if (isNamedPager) return true;
+
+        const isDirectionLabel = labelCandidates.some(function (label) {
+            return /^(首页|尾页|首頁|末頁|上一页|下一页|前一页|后一页|上一頁|下一頁|前一頁|後一頁|上页|下页|上頁|下頁|更多结果|更多結果|first(?: page)?|last(?: page)?|next(?: page)?|prev(?:ious)?(?: page)?|newer|older|more results?|show more|次へ|前へ|다음|이전)$/i.test(label);
+        });
+        if (isDirectionLabel) return true;
+
+        const isPageNumber = labelCandidates.some(function (label) { return /^\d+$/.test(label); });
+        const isPageLabel = labelCandidates.some(function (label) { return /^(?:go to )?page\s*\d+$|^第\s*\d+\s*[页頁]$/i.test(label); });
+        const dataPage = link.getAttribute('data-page') || link.getAttribute('data-page-number') || '';
+        const hasPageUrl = /[?&](?:p|pg|page|paged|pageno|page_no|pagenum|page_num|pageindex|page_index|page_number|offset|start)=\d+/i.test(url.search) || /\/(?:page|paged|p)[/-]?\d+(?:[./-]|$)/i.test(url.pathname);
+        if (isPageLabel || /^\d+$/.test(dataPage) || (isPageNumber && hasPageUrl)) return true;
+
+        const inPager = isPaginationContainer(link);
+        if (!inPager) return false;
+
+        const hasPageMarker = /(^|[\s_-])(page|page-item|page-link|page-number|page-numbers|next|prev|previous)([\s_-]|$)/i.test(marker);
+        return isPageNumber || hasPageMarker || hasPageUrl;
+    }
+
     function scanLinks() {
         document.querySelectorAll('a[href]').forEach(function (a) {
             const href = a.getAttribute('href') || '';
             const isHttp = a.href.slice(0, 4) === 'http';
-            if (isAshemaletubeInternalLink(a)) {
-                a.target = '_self';
-                a.removeAttribute('rel');
-                return;
-            }
-            const keepSelf = !isHttp || href[0] === '#' || isJableInternalLink(a) || isAshemaletubePreviewLink(a) || isPmvHavenVideoLink(a) || isRule34VideoLink(a) || isMissAvNavLink(a) || isMissAvPreviewLink(a);
+            const keepSelf = !isHttp || href[0] === '#' || isPaginationLink(a);
             a.target = keepSelf || !enabled ? '_self' : '_blank';
             if (enabled && !keepSelf) a.rel = 'noopener';
         });
@@ -163,125 +222,6 @@
         return target?.closest?.('a[href], area[href]');
     }
 
-    function isJableHost(hostname) {
-        return /(^|\.)jable\.tv$/i.test(hostname || '');
-    }
-
-    function isJableInternalLink(link) {
-        // Jable 列表页的影片格子依赖站点脚本/lazy/动画初始化。
-        // 页面加载阶段批量写 target=_blank 会让部分移动端页面出现影片格子不渲染。
-        // 所以扫描阶段先保持站内链接原样；真正点击时仍由通用 click 逻辑临时设为 _blank。
-        if (!link || !isJableHost(location.hostname)) return false;
-        let url;
-        try { url = new URL(link.href, location.href); } catch (_) { return false; }
-        return isJableHost(url.hostname);
-    }
-
-    function isAshemaletubeHost(hostname) {
-        return /(^|\.)ashemaletube\.com$/i.test(hostname || '');
-    }
-
-    function isAshemaletubeInternalLink(link) {
-        if (!link || !isAshemaletubeHost(location.hostname)) return false;
-        let url;
-        try { url = new URL(link.href, location.href); } catch (_) { return false; }
-        return isAshemaletubeHost(url.hostname);
-    }
-
-    function isAshemaletubePreviewLink(link) {
-        // Ashemaletube 首页/列表页的视频封面依赖站点原生触摸预览。
-        // 开启新标签页时不能批量写 target=_blank，否则首次预览后后续卡片会直接新标签页打开。
-        // 这里保守处理：站内 /video(s)/ 链接一律保持 _self，让站点自己的预览/点击状态机优先。
-        if (!link || !isAshemaletubeHost(location.hostname)) return false;
-        let url;
-        try { url = new URL(link.href, location.href); } catch (_) { return false; }
-        if (!isAshemaletubeHost(url.hostname)) return false;
-        return /^\/videos?\//i.test(url.pathname);
-    }
-
-    function isAshemaletubePreviewTap(e, link) {
-        if (!e || !isAshemaletubePreviewLink(link)) return false;
-        // Ashemaletube 的移动端预览/二次点击逻辑由站点脚本自己判断；
-        // 对 /videos/ 链接全部不接管，避免第二个封面被本脚本改成新标签页。
-        return true;
-    }
-
-    function isPmvHavenVideoLink(link) {
-        // PMVHaven 视频卡片：hover/pointer 后动态插入 preview.mp4。
-        // 链接自身保持 _self；非预览区点击仍由脚本捕获后 window.open(_blank)。
-        if (!link) return false;
-        if (!/(^|\.)pmvhaven\.com$/i.test(location.hostname)) return false;
-        let url;
-        try { url = new URL(link.href, location.href); } catch (_) { return false; }
-        if (!/(^|\.)pmvhaven\.com$/i.test(url.hostname)) return false;
-        return /^\/video\//i.test(url.pathname) || Boolean(link.dataset?.videoId);
-    }
-
-    function isPmvHavenPreviewTap(e, link) {
-        if (!e || !isPmvHavenVideoLink(link)) return false;
-        const point = getEventPoint(e);
-        const media = link.querySelector?.('video, img, .aspect-video, [class*=aspect-video], [class*=thumbnail], [class*=poster], [class*=image]');
-        if (media) {
-            const rect = media.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) return isInRect(point, rect, 8);
-        }
-        // 兜底：PMVHaven 卡片顶部约 58% 是封面/预览区域；下方标题、标签仍新标签页打开。
-        const rect = link.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) return point.y <= rect.top + rect.height * 0.58;
-        return false;
-    }
-
-    function isRule34VideoHost(hostname) {
-        return /(^|\.)rule34video\.com$/i.test(hostname || '');
-    }
-
-    function isRule34VideoLink(link) {
-        // rule34video 视频卡片：开启新标签页时用两段式打开，避免滚动/点封面时误进视频页。
-        if (!link || !isRule34VideoHost(location.hostname)) return false;
-        let url;
-        try { url = new URL(link.href, location.href); } catch (_) { return false; }
-        if (!isRule34VideoHost(url.hostname)) return false;
-        if (/^\/(?:video|videos)\//i.test(url.pathname)) return true;
-        const card = link.closest?.('[class*=video], [class*=thumb], [class*=item], article, li');
-        return Boolean(card?.querySelector?.('video, img, picture, [class*=thumb], [class*=preview], [class*=poster], [class*=cover]'));
-    }
-
-    function isRule34VideoThumbTap(e, link) {
-        if (!e || !isRule34VideoLink(link)) return false;
-        const point = getEventPoint(e);
-        const card = link.closest?.('[class*=video], [class*=thumb], [class*=item], article, li') || link;
-        const media = card.querySelector?.('video, img, picture, [class*=thumb], [class*=preview], [class*=poster], [class*=cover]');
-        if (media) {
-            const rect = media.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) return isInRect(point, rect, 8);
-        }
-        const rect = link.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) return point.y <= rect.top + rect.height * 0.72;
-        return true;
-    }
-
-    let pmvHavenArmedHref = '';
-    let pmvHavenArmedAt = 0;
-    let pmvHavenLastInteractHref = '';
-    let pmvHavenLastInteractAt = 0;
-    const PMVHAVEN_REARM_MS = 4000;
-    const PMVHAVEN_DEBOUNCE_MS = 600;
-    const PMVHAVEN_MOVE_TOLERANCE = 12;
-    let pmvHavenPointerDownX = 0;
-    let pmvHavenPointerDownY = 0;
-    let pmvHavenPointerDownHref = '';
-
-    let rule34VideoArmedHref = '';
-    let rule34VideoArmedAt = 0;
-    let rule34VideoLastInteractHref = '';
-    let rule34VideoLastInteractAt = 0;
-    const RULE34VIDEO_REARM_MS = 4000;
-    const RULE34VIDEO_DEBOUNCE_MS = 600;
-    const RULE34VIDEO_MOVE_TOLERANCE = 12;
-    let rule34VideoPointerDownX = 0;
-    let rule34VideoPointerDownY = 0;
-    let rule34VideoPointerDownHref = '';
-
     function showBackgroundToast() {
         const id = '__tb_background_toast__';
         let toast = document.getElementById(id);
@@ -340,146 +280,9 @@
         openLinkWithAnchor(href);
     }
 
-    function handlePmvHavenPreviewInteract(e, link) {
-        const href = link.href || '';
-        if (!href) return;
-        const now = Date.now();
-
-        // PMVHaven 原生两段式主要由 click 触发；pointerup/touchend 只用来拦截通用新标签逻辑，
-        // 不计入「第几次点击」，避免一次 tap 的多事件被误判为二次点击而自动播放/打开。
-        if (e.type !== 'click') {
-            return;
-        }
-
-        // 滑动列表后的 click 不算一次封面点击，避免滚动时误触预览/打开。
-        if (pmvHavenPointerDownHref === href) {
-            const p = getEventPoint(e);
-            if (Math.abs(p.x - pmvHavenPointerDownX) > PMVHAVEN_MOVE_TOLERANCE || Math.abs(p.y - pmvHavenPointerDownY) > PMVHAVEN_MOVE_TOLERANCE) {
-                return;
-            }
-        }
-
-        // click 级去抖，避免站点或浏览器重复派发 click。
-        if (href === pmvHavenLastInteractHref && now - pmvHavenLastInteractAt < PMVHAVEN_DEBOUNCE_MS) {
-            e.preventDefault();
-            return;
-        }
-        pmvHavenLastInteractHref = href;
-        pmvHavenLastInteractAt = now;
-
-        // 第二次点同一封面：新标签页打开。
-        if (href === pmvHavenArmedHref && now - pmvHavenArmedAt < PMVHAVEN_REARM_MS) {
-            pmvHavenArmedHref = '';
-            pmvHavenArmedAt = 0;
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            openLinkInBackground(href);
-            return;
-        }
-
-        // 第一次点封面：只阻止链接默认跳转，不停止站点自己的 click 处理。
-        // 这样保留 PMVHaven 原生「首次点播放预览、再次点打开」逻辑，且不会因脚本主动触发而误自动播放。
-        pmvHavenArmedHref = href;
-        pmvHavenArmedAt = now;
-        e.preventDefault();
-    }
-
-    function handleRule34VideoThumbInteract(e, link) {
-        const href = link.href || '';
-        if (!href) return;
-        const now = Date.now();
-
-        // pointerup/touchend/click 会连续触发；只把 click 算作一次 tap，前置事件只阻止通用打开逻辑。
-        if (e.type !== 'click') {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            return;
-        }
-
-        // 列表滑动后落在卡片上的 click 不算点击，避免滚动时误开视频。
-        if (rule34VideoPointerDownHref === href) {
-            const p = getEventPoint(e);
-            if (Math.abs(p.x - rule34VideoPointerDownX) > RULE34VIDEO_MOVE_TOLERANCE || Math.abs(p.y - rule34VideoPointerDownY) > RULE34VIDEO_MOVE_TOLERANCE) {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                return;
-            }
-        }
-
-        if (href === rule34VideoLastInteractHref && now - rule34VideoLastInteractAt < RULE34VIDEO_DEBOUNCE_MS) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            return;
-        }
-        rule34VideoLastInteractHref = href;
-        rule34VideoLastInteractAt = now;
-
-        // 第二次点同一个视频封面：才新标签页打开。
-        if (href === rule34VideoArmedHref && now - rule34VideoArmedAt < RULE34VIDEO_REARM_MS) {
-            rule34VideoArmedHref = '';
-            rule34VideoArmedAt = 0;
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            openLinkInBackground(href);
-            return;
-        }
-
-        // 第一次点封面：只进入待确认状态，不跳转。
-        rule34VideoArmedHref = href;
-        rule34VideoArmedAt = now;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-    }
-
-    function isMissAvPreviewPage() {
-        if (!/(^|\.)missav\.[a-z0-9-]+$/i.test(location.hostname)) return false;
-        // 列表类页面（原有路径正则）
-        if (/\/(dm\d+\/)?(?:[a-z]{2}\/)?(?:actresses?|genres?|makers?|tags?|search|new|today|weekly|monthly|uncensored|chinese-subtitle)(\/|$)/i.test(location.pathname)) return true;
-        // 影片详情页等：只要页面存在封面预览视频（推荐区卡片）也算预览页
-        return Boolean(document.querySelector('video.preview, video[class*="preview"]'));
-    }
-
-    function isEpornerThumb(link) {
-        // eporner.com 缩略图：站点自带触摸预览引擎（EPimagePreviewStart 等）。
-        // 采用两段式：首次点击放行给站点（启动预览），同一缩略图再次点击才新标签页打开。
-        if (!link) return false;
-        if (!/(^|\.)eporner\.com$/i.test(location.hostname)) return false;
-        if (link.querySelector?.('img[data-st]')) return true;
-        const card = link.closest?.('.mb, .mbcontent, [class*=mbcontent]');
-        return Boolean(card?.querySelector?.('img[data-st]'));
-    }
-
-    function isMissAvNavLink(link) {
-        // MissAV 站内导航：排序/过滤菜单项、分页（下一页/页码）——应在当前页跳转，不要新标签页打开
-        if (!link) return false;
-        if (!/(^|\.)missav\.[a-z0-9-]+$/i.test(location.hostname)) return false;
-        const href = link.getAttribute('href') || '';
-        // 纯 JS 菜单触发（href="#" 或空）
-        if (href === '' || href[0] === '#') return true;
-        // 带查询参数的站内导航：?page= / ?sort= / ?filters=
-        let url;
-        try { url = new URL(link.href, location.href); } catch (_) { return false; }
-        if (!/(^|\.)missav\.[a-z0-9-]+$/i.test(url.hostname)) return false;
-        return /[?&](page|sort|filters)=/.test(url.search);
-    }
-
-    function isMissAvPreviewLink(link) {
-        if (!isMissAvPreviewPage() || !link) return false;
-
-        const mediaSelector = 'video, canvas, picture, img, .thumbnail, .cover, .preview, [class*=preview], [class*=thumbnail], [class*=cover], [class*=image], [class*=poster]';
-        if (link.querySelector?.(mediaSelector)) return true;
-
-        const card = link.closest?.('.thumbnail, .cover, .preview, [class*=thumbnail], [class*=cover], [class*=preview], [class*=movie], [class*=video], [class*=item]');
-        return Boolean(card?.querySelector?.(mediaSelector));
-    }
-
     function getEventPoint(e) {
         const p = e.changedTouches?.[0] || e.touches?.[0] || e;
         return { x: p.clientX || 0, y: p.clientY || 0 };
-    }
-
-    function isInRect(point, rect, gap = 0) {
-        return point.x >= rect.left - gap && point.x <= rect.right + gap && point.y >= rect.top - gap && point.y <= rect.bottom + gap;
     }
 
     function recordGenericLinkPointerDown(e) {
@@ -499,107 +302,9 @@
         return Math.abs(p.x - genericLinkPointerDownX) > GENERIC_LINK_MOVE_TOLERANCE || Math.abs(p.y - genericLinkPointerDownY) > GENERIC_LINK_MOVE_TOLERANCE;
     }
 
-    function isMissAvPreviewTap(e, link) {
-        if (!e || !link || !isMissAvPreviewLink(link)) return false;
-
-        const point = getEventPoint(e);
-        const card = link.closest?.('.thumbnail, .cover, .preview, [class*=thumbnail], [class*=cover], [class*=preview], [class*=movie], [class*=video], [class*=item]') || link;
-        const media = card.querySelector?.('video, canvas, picture, img, .cover, .preview, [class*=preview], [class*=cover], [class*=image], [class*=poster]');
-
-        if (media) {
-            const rect = media.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) return isInRect(point, rect, 8);
-        }
-
-        const linkRect = link.getBoundingClientRect();
-        if (linkRect.width > 0 && linkRect.height > 0) {
-            const imageBottom = linkRect.top + linkRect.height * 0.72;
-            return point.y <= imageBottom;
-        }
-
-        return false;
-    }
-
-    // eporner 两段式预览：记录已触发过预览的缩略图 href + 时间戳
-    let epornerArmedHref = '';
-    let epornerArmedAt = 0;
-    let epornerLastInteractHref = '';
-    let epornerLastInteractAt = 0;
-    let epornerJustOpenedHref = '';
-    const EPORNER_REARM_MS = 4000;
-    const EPORNER_DEBOUNCE_MS = 600;
-
-    // 处理 eporner 缩略图两段式（在 pointerup / touchend / click 任一阶段被调用）。
-    // 真机上站点预览引擎可能在 touchend 调 preventDefault 抑制后续 click，导致第二次
-    // 收不到 click，所以状态机以「同一缩略图 href 在时间窗内的第二次交互」为准，
-    // 不依赖具体事件类型，只用一个去抖锁避免同一次 tap 的多事件被重复计数。
-    function handleEpornerThumbInteract(e, a) {
-        const href = a.href || '';
-        if (!href) return;
-        const now = Date.now();
-
-        // 去抖：同一次 tap 会派发 pointerup→touchend→click，间隔很短，视为一次交互
-        if (href === epornerLastInteractHref && now - epornerLastInteractAt < EPORNER_DEBOUNCE_MS) {
-            // 同一次 tap 的后续事件：首次(armed)或刚开过新标签页(justOpened)都要继续吞掉默认跳转
-            if (epornerArmedHref === href || epornerJustOpenedHref === href) {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-            }
-            return;
-        }
-        epornerLastInteractHref = href;
-        epornerLastInteractAt = now;
-        epornerJustOpenedHref = '';
-
-        // 同一缩略图时间窗内的「第二次 tap」：新标签页打开
-        if (href === epornerArmedHref && now - epornerArmedAt < EPORNER_REARM_MS) {
-            epornerArmedHref = '';
-            epornerArmedAt = 0;
-            epornerJustOpenedHref = href;
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            openLinkInBackground(href);
-            return;
-        }
-
-        // 首次 tap：阻止跳转、放行给站点预览引擎（预览靠 touch 不靠 click），记录 armed
-        epornerArmedHref = href;
-        epornerArmedAt = now;
-        e.preventDefault();
-    }
-
-    function handlePmvHavenPointerDown(e) {
-        const a = findLinkTarget(e.target);
-        if (!enabled || !a || !isPmvHavenPreviewTap(e, a)) return;
-        const p = getEventPoint(e);
-        pmvHavenPointerDownX = p.x;
-        pmvHavenPointerDownY = p.y;
-        pmvHavenPointerDownHref = a.href || '';
-    }
-
-    function handleRule34VideoPointerDown(e) {
-        const a = findLinkTarget(e.target);
-        if (!enabled || !a || !isRule34VideoThumbTap(e, a)) return;
-        const p = getEventPoint(e);
-        rule34VideoPointerDownX = p.x;
-        rule34VideoPointerDownY = p.y;
-        rule34VideoPointerDownHref = a.href || '';
-    }
-
-    function handlePreviewPointerDown(e) {
-        recordGenericLinkPointerDown(e);
-        handlePmvHavenPointerDown(e);
-        handleRule34VideoPointerDown(e);
-    }
-
-    function shouldOpenNewTab(a, e) {
+    function shouldOpenNewTab(a) {
         if (!enabled || !a) return false;
-        if (isAshemaletubeInternalLink(a)) return false;
-        if (isAshemaletubePreviewTap(e, a)) return false;
-        if (isPmvHavenPreviewTap(e, a)) return false;
-        if (isRule34VideoThumbTap(e, a)) return false;
-        if (isMissAvPreviewTap(e, a)) return false;
-        if (isMissAvNavLink(a)) return false;
+        if (isPaginationLink(a)) return false;
         const href = a.getAttribute('href') || '';
         return a.href.slice(0, 4) === 'http' && href[0] !== '#';
     }
@@ -607,28 +312,7 @@
     function handleLinkOpen(e) {
         if (toolbar?.contains(e.target)) return;
         const a = findLinkTarget(e.target);
-        if (enabled && a && isAshemaletubeInternalLink(a)) {
-            a.target = '_self';
-            a.removeAttribute('rel');
-            return;
-        }
-        // PMVHaven 视频卡片封面区：首次 tap 交给站点原生预览，二次 tap 新标签页打开
-        if (enabled && a && isPmvHavenPreviewTap(e, a)) {
-            handlePmvHavenPreviewInteract(e, a);
-            return;
-        }
-        // rule34video 视频卡片封面区：首次 tap 只确认，二次 tap 新标签页打开，避免误触进视频。
-        if (enabled && a && isRule34VideoThumbTap(e, a)) {
-            handleRule34VideoThumbInteract(e, a);
-            return;
-        }
-        // eporner 缩略图两段式：pointerup/touchend/click 都进同一去抖状态机
-        // （真机预览引擎可能在 touchend preventDefault 抑制 click，故不能只靠 click）
-        if (enabled && a && isEpornerThumb(a)) {
-            handleEpornerThumbInteract(e, a);
-            return;
-        }
-        if (!shouldOpenNewTab(a, e)) return;
+        if (!shouldOpenNewTab(a)) return;
 
         // 通用链接只在 click 阶段处理；pointerup/touchend 过早处理会把滑动列表的抬手误判为点击。
         // 取消网页原跳转，交给 Scripting 的 GM.openInTab({ active: false }) 明确在后台打开。
@@ -1006,8 +690,8 @@
         runWhenIdle(function () { if (enabled) scheduleScanBurst(); }, 800);
     }
 
-    document.addEventListener('pointerdown', handlePreviewPointerDown, true);
-    document.addEventListener('touchstart', handlePreviewPointerDown, { capture: true, passive: true });
+    document.addEventListener('pointerdown', recordGenericLinkPointerDown, true);
+    document.addEventListener('touchstart', recordGenericLinkPointerDown, { capture: true, passive: true });
     document.addEventListener('touchend', handleLinkOpen, { capture: true, passive: false });
     document.addEventListener('pointerup', handleLinkOpen, true);
     document.addEventListener('click', handleLinkOpen, true);
