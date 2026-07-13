@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.64
+// @version      1.1.0
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
 // @match        *://*/*
 // @grant        GM.registerMenuCommand
+// @grant        GM.openInTab
 // @run-at       document-start
 // @exclude      https://accounts.google.com/*
 // @exclude      https://accounts.google.com.hk/*
@@ -24,12 +25,12 @@
     const DEFAULT_BOTTOM = BOTTOM_GAP + (PAGER_HEIGHT - BTN_SIZE) / 2;
     const FALLBACK_PAGER_WIDTH = 175;
     const DEFAULT_RIGHT = PAGER_RIGHT_GAP + FALLBACK_PAGER_WIDTH + LINK_PAGER_GAP;
-    const CURRENT_LAYOUT_VERSION = '1.0.64';
+    const CURRENT_LAYOUT_VERSION = '1.1.0';
 
     const COLOR_ON = '#0A84FF';
     const COLOR_OFF = 'rgba(28,28,30,.82)';
 
-    let enabled = getVal('newTabEnabled', false);
+    let enabled = getVal('newTabEnabled', true);
     let toolbar, linkBtn, observer, bodyObserver, toolbarEnsureTimer, neighborResizeObserver, observedNeighbor;
     let menuRegistered = false;
     let listenersInstalled = false;
@@ -279,8 +280,7 @@
     let rule34VideoPointerDownY = 0;
     let rule34VideoPointerDownHref = '';
 
-    function openLinkInBackground(href) {
-        if (!href) return;
+    function openLinkWithAnchor(href) {
         const link = document.createElement('a');
         link.href = href;
         link.target = '_blank';
@@ -292,12 +292,22 @@
         link.style.height = '1px';
         link.style.opacity = '0';
         (document.body || document.documentElement).appendChild(link);
-        try {
-            link.click();
-        } catch (_) {
-            openLinkInBackground(href);
-        }
+        try { link.click(); } catch (_) {}
         setTimeout(function () { link.remove(); }, 0);
+    }
+
+    function openLinkInBackground(href) {
+        if (!href) return;
+        try {
+            if (typeof GM !== 'undefined' && typeof GM.openInTab === 'function') {
+                const task = GM.openInTab(href, { active: false });
+                if (task && typeof task.catch === 'function') {
+                    task.catch(function () { openLinkWithAnchor(href); });
+                }
+                return;
+            }
+        } catch (_) {}
+        openLinkWithAnchor(href);
     }
 
     function handlePmvHavenPreviewInteract(e, link) {
@@ -591,8 +601,7 @@
         if (!shouldOpenNewTab(a, e)) return;
 
         // 通用链接只在 click 阶段处理；pointerup/touchend 过早处理会把滑动列表的抬手误判为点击。
-        // click 阶段不再 preventDefault + window.open，而是保持 Safari 原生链接点击，
-        // 只提前设置 target=_blank/rel=noopener，让系统 Safari「在后台打开」设置有机会生效。
+        // 取消网页原跳转，交给 Scripting 的 GM.openInTab({ active: false }) 明确在后台打开。
         if (isGenericLinkScrollGesture(e, a)) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -609,8 +618,9 @@
         lastOpenedHref = a.href;
         lastOpenedAt = now;
 
-        a.target = '_blank';
-        a.rel = 'noopener';
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        openLinkInBackground(a.href);
         return;
     }
 
@@ -740,6 +750,13 @@
 
         linkBtn.style.opacity = '0.3';
         setTimeout(function () { linkBtn.style.opacity = '1'; }, 250);
+    }
+
+    function migrateBackgroundOpenDefault() {
+        if (getVal('backgroundOpenDefaultVersion', '') === '1.1.0') return;
+        enabled = true;
+        setVal('newTabEnabled', true);
+        setVal('backgroundOpenDefaultVersion', '1.1.0');
     }
 
     function migrateDefaultPosition() {
@@ -932,6 +949,7 @@
     }
 
     function init() {
+        migrateBackgroundOpenDefault();
         migrateDefaultPosition();
         if (!ensureToolbar()) return;
         if (enabled) {
