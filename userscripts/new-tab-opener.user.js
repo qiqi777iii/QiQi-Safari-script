@@ -14,4 +14,4 @@
 // @run-at       document-start
 // ==/UserScript==
 
-PLACEHOLDER
+__PLACEHOLDER_BODY__
