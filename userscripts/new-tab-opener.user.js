@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.3
+// @version      2.0.4
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -200,6 +200,21 @@
         return previewLink ? { card, preview, previewLink } : null;
     }
 
+    function shouldBackgroundOpenOnMissAv(a, url) {
+        if (!/(^|\.)missav\./i.test(location.hostname)) return true;
+
+        // MissAV 只让影片卡片进入后台标签页；站内导航、筛选、排序、翻页、
+        // 语言切换、收藏、历史、播放列表和登录等链接维持网站原本的当前页行为。
+        const context = getMissAvPreviewContext(a);
+        if (!context) return false;
+
+        let previewUrl;
+        try { previewUrl = new URL(context.previewLink.href, document.baseURI); } catch (_) { return false; }
+        return url.origin === previewUrl.origin &&
+            url.pathname === previewUrl.pathname &&
+            url.search === previewUrl.search;
+    }
+
     function installEnabledStateListener() {
         if (valueChangeListenerInstalled || typeof GM === 'undefined' || !GM.addValueChangeListener) return;
         valueChangeListenerInstalled = true;
@@ -343,6 +358,7 @@
         let url;
         try { url = new URL(rawHref, document.baseURI); } catch (_) { return null; }
         if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return null;
+        if (!shouldBackgroundOpenOnMissAv(a, url)) return null;
         const marker = `${url.hostname} ${url.pathname} ${url.search} ${a.id || ''} ${typeof a.className === 'string' ? a.className : ''}`;
         if (/(?:^|[\/_.-])(?:login|signin|signout|logout|auth|authorize|oauth|sso|saml|account|checkout|payment|pay|billing|subscribe|purchase|confirm|action|delete|remove|follow|like|vote|favorite|bookmark|cart)(?:[\/_.?#-]|$)/i.test(marker)) return null;
         for (const key of url.searchParams.keys()) if (/^(?:action|method|cmd|command|do|operation)$/i.test(key)) return null;
