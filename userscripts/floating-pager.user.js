@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         悬浮翻页
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.10
+// @version      2.0.11
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @description  自动识别页面的上一页和下一页，并提供关闭标签页、刷新及可拖动的悬浮翻页按钮。
@@ -184,6 +184,11 @@
       if (siteCandidate) return siteCandidate;
     }
 
+    if (isEporner()) {
+      const siteCandidate = findEpornerCandidate(direction);
+      if (siteCandidate) return siteCandidate;
+    }
+
     if (isEpornerVideoPage()) {
       return null;
     }
@@ -259,6 +264,11 @@
       const value = url.searchParams.get(key);
       if (/^\d+$/.test(value || "")) return String(parseInt(value, 10));
     }
+    if (/(^|\.)eporner\.com$/i.test(url.hostname)) {
+      const playlistPage = getEpornerPlaylistPage(url.href);
+      if (playlistPage) return playlistPage;
+    }
+
     // NodeSeek 列表页：/page-2，最后一个数字就是页码。
     if (/(^|\.)nodeseek\.com$/i.test(url.hostname)) {
       const nodeSeekListMatch = url.pathname.match(/^\/page-0*(\d{1,5})(?:\/)?$/i);
@@ -612,8 +622,82 @@
     return isEporner() && /^\/video-[^/]+\//i.test(location.pathname);
   }
 
+  function isEpornerPlaylistPage(urlLike = location.href) {
+    if (!isEporner()) return false;
+    try {
+      const url = new URL(urlLike, location.href);
+      return /^\/profile\/[^/]+\/playlist\/[^/]+\/[^/]+(?:\/0*\d{1,5})?\/?$/i.test(url.pathname);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getEpornerPlaylistPage(urlLike = location.href) {
+    try {
+      const url = new URL(urlLike, location.href);
+      if (!/(^|\.)eporner\.com$/i.test(url.hostname)) return "";
+      const match = url.pathname.match(/^\/profile\/[^/]+\/playlist\/[^/]+\/[^/]+(?:\/0*(\d{1,5}))?\/?$/i);
+      if (!match) return "";
+      return match[1] ? String(parseInt(match[1], 10)) : "1";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function makeEpornerPlaylistPageUrl(targetPage) {
+    targetPage = parseInt(targetPage, 10);
+    if (!isEpornerPlaylistPage() || !Number.isFinite(targetPage) || targetPage < 1) return "";
+    const url = new URL(location.href);
+    const match = url.pathname.match(/^(\/profile\/[^/]+\/playlist\/[^/]+\/[^/]+)(?:\/0*\d{1,5})?\/?$/i);
+    if (!match) return "";
+    url.pathname = targetPage === 1 ? `${match[1]}/` : `${match[1]}/${targetPage}/`;
+    url.search = "";
+    url.hash = "";
+    return url.href;
+  }
+
+  function findEpornerCandidate(direction) {
+    if (!isEporner()) return null;
+    if (isEpornerVideoPage()) return null;
+
+    const selector = direction === "next"
+      ? '.numlist2 > a.nmnext[href], a[rel~="next"][href]'
+      : '.numlist2 > a.nmback[href], a[rel~="prev"][href]';
+    for (const el of $$(selector)) {
+      if (visible(el) && !disabled(el) && !deniedPaginationCandidate(el)) return el;
+    }
+
+    const rel = direction === "next" ? "next" : "prev";
+    const headLink = $(`link[rel~="${rel}"][href]`);
+    if (headLink?.href && !deniedPaginationCandidate(headLink)) {
+      return { __paginationUrl: headLink.href };
+    }
+
+    if (!isEpornerPlaylistPage()) return null;
+    const current = parseInt(getEpornerCurrentPage() || "1", 10);
+    const target = current + (direction === "next" ? 1 : -1);
+    if (!Number.isFinite(target) || target < 1) return null;
+
+    // 上一页只要当前页大于 1 就一定存在；下一页必须由站点真实链接证明，
+    // 避免在播放列表末页构造一个不存在的地址并跳到 404。
+    if (direction === "next") return null;
+    const url = makeEpornerPlaylistPageUrl(target);
+    return url ? { __paginationUrl: url } : null;
+  }
+
   function getEpornerCurrentPage() {
     if (!isEporner()) return "";
+
+    // 播放列表当前页使用 span.nmhere，而不是通用的 active/current 标记。
+    // DOM 优先，兼容站点未来局部更新内容但暂未同步地址栏的情况。
+    for (const el of $$('.numlist2 > .nmhere, .numlist2 .nmhere')) {
+      const page = numericText(el);
+      if (page) return page;
+    }
+
+    const playlistPage = getEpornerPlaylistPage();
+    if (playlistPage) return playlistPage;
+
     // eporner 的列表页常见格式：/recommendations/2/，这里的末尾数字就是页码。
     // 只对明确的列表路径启用，避免把视频详情页 ID 误判成页码。
     const match = location.pathname.match(/^\/(?:recommendations|videos|cat|category|search|channels?|pornstars?|albums?|photos?|top-rated|most-viewed|latest|newest)\/(?:[^/]+\/)*0*(\d{1,5})\/?$/i);
@@ -896,6 +980,7 @@
     if (!Number.isFinite(targetPage) || targetPage < 1) return "";
 
     if (isMissAvPaginationPage()) return makeMissAvPageUrl(targetPage);
+    if (isEpornerPlaylistPage()) return makeEpornerPlaylistPageUrl(targetPage);
     if (isJable()) return makeJablePageUrl(targetPage);
     if (isXVideos()) return makeXVideosPageUrl(targetPage);
 
