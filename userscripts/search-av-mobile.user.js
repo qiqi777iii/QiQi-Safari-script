@@ -105,8 +105,6 @@
 // @grant       GM_openInTab
 // @run-at      document-idle
 
-// @downloadURL https://raw.githubusercontent.com/qiqi777iii/Scripts/refs/heads/main/userscripts/search-av-mobile.user.js
-// @updateURL https://raw.githubusercontent.com/qiqi777iii/Scripts/refs/heads/main/userscripts/search-av-mobile.user.js
 // ==/UserScript==
 
 (function() {
