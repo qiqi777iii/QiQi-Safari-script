@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         番号快速搜索
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      0.24.5.8
+// @version      0.24.5.9
 // @description  识别并标记网页中的番号，提供常用网站快捷搜索。
 // @author       iqxin
 // @modifiedBy   QiQi
@@ -595,42 +595,77 @@
         // }
     }
 
-    // 对动态添加的dom进行检测
-    var observerTarget = document.querySelector('body');    // 选择目标节点
-    var observerConfig = {childList: true, characterData: true ,subtree:true,}; // 配置观察选项
-    var observer = new window.MutationObserver(function(mutations) {    // 创建观察者对象  
-        // console.log("观察者数量");
-        // console.log(mutations.length);
+    // 对动态添加的 DOM 合并检测：Text 节点提升到父元素，并保证异常后恢复观察
+    var observerTarget = document.querySelector('body');
+    var observerConfig = {childList: true, characterData: true, subtree: true};
+    var pendingScanRoots = new Set();
+    var dynamicScanTimer = 0;
+    var observer;
+
+    function mutationRoot(node) {
+        if (!node) return null;
+        if (node.nodeType === Node.TEXT_NODE) return node.parentElement;
+        return node.nodeType === Node.ELEMENT_NODE ? node : null;
+    }
+
+    function queueDynamicScan(node) {
+        var root = mutationRoot(node);
+        if (!root || !root.isConnected || checkParentClass(root)) return;
+        pendingScanRoots.add(root);
+        if (dynamicScanTimer) clearTimeout(dynamicScanTimer);
+        dynamicScanTimer = setTimeout(flushDynamicScans, 80);
+    }
+
+    function compactScanRoots(roots) {
+        return roots.filter(function(root, index, all) {
+            return !all.some(function(other) {
+                return other !== root && other.contains(root);
+            });
+        });
+    }
+
+    function scanDynamicRoot(root) {
+        if (!root || !root.isConnected || checkParentClass(root)) return;
+        var text = root.innerText || root.textContent || "";
+        if (text.search(oRegExp) > -1) findAndReplaceDOMTextFun(root);
+        text = root.innerText || root.textContent || "";
+        if (text.search(oRegExp2) > -1) findAndReplaceDOMTextFun2(root);
+        text = root.innerText || root.textContent || "";
+        if (text.search(oRegExp_wuma) > -1) findAndReplaceDOMTextFun_Wuma(root);
+        text = root.innerText || root.textContent || "";
+        if (text.search(oRegExp_wuma2) > -1) findAndReplaceDOMTextFun_Wuma2(root);
+    }
+
+    function flushDynamicScans() {
+        dynamicScanTimer = 0;
+        var roots = compactScanRoots(Array.from(pendingScanRoots).filter(function(root) {
+            return root && root.isConnected;
+        }));
+        pendingScanRoots.clear();
+        if (!roots.length || !observerTarget) return;
+        observer.disconnect();
+        try {
+            roots.forEach(function(root) {
+                try {
+                    scanDynamicRoot(root);
+                } catch (error) {
+                    if (debug) console.error("动态番号扫描失败", error);
+                }
+            });
+        } finally {
+            if (observerTarget.isConnected) observer.observe(observerTarget, observerConfig);
+        }
+    }
+
+    observer = new window.MutationObserver(function(mutations) {
         mutations.forEach(function(mutation) {
-            if(mutation.target.innerText?.length<5){
-                // console.log(mutation.target.innerText);
-                if(debug)console.log("内容为空");
+            if (mutation.type === "characterData") {
+                queueDynamicScan(mutation.target);
+            } else if (mutation.type === "childList") {
+                mutation.addedNodes.forEach(queueDynamicScan);
             }
-            else if(checkParentClass(mutation.target)){
-                if(debug){console.log("存在不合适的父元素")}
-            }else{
-                observer.disconnect();  // 关闭对 dom 的监听
-                // if(debug){console.log("开始判断正则")}
-                if(mutation.target.innerText?.search(oRegExp)>-1){
-                    // console.log("普通番号");
-                    findAndReplaceDOMTextFun(mutation.target)
-                }
-                if(mutation.target.innerText.search(oRegExp2)>-1){
-                    // console.log("连续番号");
-                    findAndReplaceDOMTextFun2(mutation.target)
-                }
-                if(mutation.target.innerText.search(oRegExp_wuma)>-1){
-                    // console.log("无码番号");
-                    findAndReplaceDOMTextFun_Wuma(mutation.target)
-                }
-                if(mutation.target.innerText.search(oRegExp_wuma2)>-1){
-                    // console.log("连续无码番号");
-                    findAndReplaceDOMTextFun_Wuma2(mutation.target)
-                }
-                observer.observe(observerTarget, observerConfig);   // 开启对 dom 的监听
-            } 
-        })
-    }); 
+        });
+    });
     
     addStyle()
 

@@ -3,7 +3,7 @@
 // @namespace    https://github.com/qiqi777iii/Scripts
 // @modifiedFrom 磁力验车助手 Beta: https://sleazyfork.org/zh-CN/scripts/565230-%E7%A3%81%E5%8A%9B%E9%AA%8C%E8%BD%A6%E5%8A%A9%E6%89%8B-beta
 // @modifiedFrom 磁力/电驴链接助手: https://sleazyfork.org/zh-CN/scripts/577143-%E7%A3%81%E5%8A%9B-%E7%94%B5%E9%A9%B4%E9%93%BE%E6%8E%A5%E5%8A%A9%E6%89%8B
-// @version      3.5.0-custom.4
+// @version      3.5.0-custom.5
 // @description  识别网页中的磁力链接，提供验车和复制功能。
 // @icon         https://uxwing.com/wp-content/themes/uxwing/download/seo-marketing/magnet-magnetic-icon.png
 // @match        *://*/*
@@ -155,19 +155,6 @@
             width: 33px !important;
             height: 33px !important;
             display: block;
-        }
-        #jav-nong-table .nong-copy,
-        #jav-nong-table .nong-check,
-        #nong-table-new .nong-copy,
-        #nong-table-new .nong-check {
-            display: none !important;
-            pointer-events: none !important;
-        }
-        #jav-nong-table .nong-115-head,
-        #jav-nong-table .nong-115-cell,
-        #nong-table-new .nong-115-head,
-        #nong-table-new .nong-115-cell {
-            display: none !important;
         }
         #jav-nong-table td:nth-child(3),
         #nong-table-new td:nth-child(3) {
@@ -836,36 +823,27 @@
     }
 
     // ================= 10. 特殊处理：laosiji 表格（兼容新旧版本）=================
-    function handleLaosijiTable() {
-        // 兼容新版（jav-nong-table）和旧版（nong-table-new）
-        const table = document.getElementById('jav-nong-table') || document.getElementById('nong-table-new');
-        if (!table) return;
-
-        // 隐藏 115 离线列（cili 自带 115 推送，避免重复）
-        table.querySelectorAll('.nong-115-head, .nong-115-cell').forEach(el => {
-            el.style.display = 'none';
-        });
-
-        // 新版行带 data-maglink；旧版行是 tr.jav-nong-row
-        const rows = table.querySelectorAll('tr[data-maglink], tr.jav-nong-row:not(.nong-head-row)');
+    function handleLaosijiTable(root = document.body) {
+        if (!root) return;
+        const elementRoot = root.nodeType === Node.ELEMENT_NODE ? root : root.parentElement;
+        if (!elementRoot) return;
+        const rowSelector = 'tr[data-maglink], tr.jav-nong-row:not(.nong-head-row)';
+        const tableSelector = '#jav-nong-table, #nong-table-new';
+        const rows = new Set();
+        const addRow = row => {
+            if (!(row instanceof HTMLTableRowElement) || !row.matches(rowSelector) || !row.closest(tableSelector)) return;
+            rows.add(row);
+        };
+        addRow(elementRoot.closest('tr'));
+        if (elementRoot.matches(rowSelector)) addRow(elementRoot);
+        elementRoot.querySelectorAll?.(rowSelector).forEach(addRow);
         rows.forEach(row => {
             const cells = row.cells;
             if (cells.length < 3) return;
             const operationCell = cells[2];
-
-            const magnetLink = row.getAttribute('data-maglink')
-                || row.querySelector('td:first-child a[href^="magnet:"]')?.href;
+            const magnetLink = row.getAttribute('data-maglink') || row.querySelector('td:first-child a[href^="magnet:"]')?.href;
             if (!magnetLink) return;
-
-            operationCell.querySelectorAll('.nong-copy, .nong-check').forEach(el => el.remove());
-
-            if (operationCell.querySelector('.mag-btn-group')) {
-                operationCell.classList.add('mag-laosiji-ready-cell');
-                return;
-            }
-
-            const btnGroup = createBtnGroup(magnetLink);
-            operationCell.appendChild(btnGroup);
+            if (!operationCell.querySelector('.mag-btn-group')) operationCell.appendChild(createBtnGroup(magnetLink));
             operationCell.classList.add('mag-laosiji-ready-cell');
         });
     }
@@ -927,56 +905,67 @@
         return fragment;
     }
 
-    // ================= 12. 页面扫描（增强版）=================
-    function processPage() {
-        // 先处理 laosiji 表格
-        handleLaosijiTable();
+    // ================= 12. 页面扫描（增量子树）=================
+    const SCRIPT_UI_SELECTOR = '.mag-btn-group, .whatslink-overlay, [data-mag-ui], [data-mag-processed], [data-qiqi-ui], [data-sav-ui], [data-qts-ui], [id^="qiqi-"], [id^="sav-"], [id^="qts-"]';
+    const BLOCKED_CONTENT_SELECTOR = `script, style, textarea, input, select, option, form, button, pre, code, [contenteditable]:not([contenteditable="false"]), #jav-nong-table, #nong-table-new, ${SCRIPT_UI_SELECTOR}`;
 
-        const processedHrefs = new Set();
-        document.querySelectorAll('a[data-mag-processed="true"]').forEach(a => {
-            if (a.href) processedHrefs.add(a.href);
-        });
+    function scanElement(node) {
+        if (!node) return null;
+        return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    }
 
-        // 处理文本节点（包括纯哈希转换和样式化链接）
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-        let node;
+    function isInsideScriptUI(node) {
+        return Boolean(scanElement(node)?.closest(SCRIPT_UI_SELECTOR));
+    }
+
+    function isBlocked(node, includeAnchor = false) {
+        const element = scanElement(node);
+        return !element || Boolean(element.closest(includeAnchor ? `${BLOCKED_CONTENT_SELECTOR}, a` : BLOCKED_CONTENT_SELECTOR));
+    }
+
+    function processPage(root) {
+        if (!root || !root.isConnected) return;
+        handleLaosijiTable(root);
+        if (isBlocked(root)) return;
+
         const textNodes = [];
-        while (node = walker.nextNode()) {
-            const parent = node.parentElement;
-            if (!parent || parent.closest('#jav-nong-table') || parent.closest('#nong-table-new') || parent.closest('.whatslink-modal') || parent.closest('.mag-btn-group') || parent.closest('[data-mag-processed]') ||
-                ['SCRIPT', 'STYLE', 'A', 'TEXTAREA', 'INPUT'].includes(parent.tagName)) continue;
-            textNodes.push(node);
+        if (root.nodeType === Node.TEXT_NODE) {
+            if (!isBlocked(root, true)) textNodes.push(root);
+        } else if (root.nodeType === Node.ELEMENT_NODE) {
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+                acceptNode(node) {
+                    if (node.nodeType === Node.ELEMENT_NODE) return isBlocked(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+                    return isBlocked(node, true) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+                }
+            });
+            let node;
+            while ((node = walker.nextNode())) if (node.nodeType === Node.TEXT_NODE) textNodes.push(node);
         }
 
         textNodes.forEach(node => {
+            if (!node.isConnected || !node.parentNode) return;
             const fragment = processTextNode(node);
-            if (fragment) {
-                node.parentNode.replaceChild(fragment, node);
-            }
+            if (fragment) node.parentNode.replaceChild(fragment, node);
         });
 
-        // 处理 <a> 标签（排除 laosiji 表格内的链接）
-        document.querySelectorAll('a').forEach(a => {
-            if (a.closest('#jav-nong-table')) return;
-            if (a.closest('#nong-table-new')) return;
-            if (a.closest('.whatslink-modal')) return;
-            if (a.dataset.magProcessed) return;
+        if (root.nodeType !== Node.ELEMENT_NODE) return;
+        const anchors = [];
+        if (root.matches('a')) anchors.push(root);
+        root.querySelectorAll('a').forEach(a => anchors.push(a));
+        anchors.forEach(a => {
+            if (!a.isConnected || isBlocked(a) || a.dataset.magProcessed) return;
             const href = a.href || '';
-            // 支持 magnet, ed2k, ftp
-            if (href.startsWith('magnet:?xt=urn:btih:') || href.startsWith('ed2k://') || href.startsWith('ftp://')) {
-                if (a.nextElementSibling?.classList?.contains('mag-btn-group')) return;
-                if (hasOtherMagnetButtons(a)) return;
-                a.after(createBtnGroup(href));
-                a.dataset.magProcessed = 'true';
-                processedHrefs.add(href);
-            }
+            if (!href.startsWith('magnet:?xt=urn:btih:') && !href.startsWith('ed2k://') && !href.startsWith('ftp://')) return;
+            if (a.nextElementSibling?.classList?.contains('mag-btn-group') || hasOtherMagnetButtons(a)) return;
+            a.after(createBtnGroup(href));
+            a.dataset.magProcessed = 'true';
         });
-
     }
 
     // ================= 13. 设置面板 =================
     function showSettingsModal() {
         const mask = document.createElement('div');
+        mask.dataset.magUi = 'true';
         mask.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100001;display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
 
         const modal = document.createElement('div');
@@ -1195,17 +1184,42 @@
     // ================= 14. 启动监听 =================
     let timer = null;
     let observer = null;
+    const pendingRoots = new Set();
+
+    function containsRoot(parent, child) {
+        return parent === child || (parent.nodeType === Node.ELEMENT_NODE && parent.contains(child));
+    }
+
+    function enqueueRoot(node) {
+        if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) return;
+        if (isInsideScriptUI(node)) return;
+        for (const existing of pendingRoots) if (containsRoot(existing, node)) return;
+        for (const existing of [...pendingRoots]) if (containsRoot(node, existing)) pendingRoots.delete(existing);
+        pendingRoots.add(node);
+    }
+
+    function flushRoots() {
+        timer = null;
+        const roots = [...pendingRoots];
+        pendingRoots.clear();
+        roots.forEach(root => { if (root.isConnected) processPage(root); });
+    }
+
     function lazyRun(delay = 120) {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(processPage, delay);
+        timer = setTimeout(flushRoots, delay);
     }
+
     function startObserver() {
         if (!document.body) {
             setTimeout(startObserver, 30);
             return;
         }
-        processPage();
-        observer = new MutationObserver(() => lazyRun());
+        processPage(document.body);
+        observer = new MutationObserver(records => {
+            records.forEach(record => record.addedNodes.forEach(enqueueRoot));
+            if (pendingRoots.size) lazyRun();
+        });
         observer.observe(document.body, { childList: true, subtree: true });
     }
     startObserver();

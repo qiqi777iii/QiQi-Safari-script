@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.46
+// @version      1.0.47
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @description  检测并控制当前网页视频，支持播放、暂停、快进、后退和全屏。
@@ -1498,21 +1498,53 @@
     }, wait);
   }
 
+  const VIDEO_RELEVANT_SELECTOR = 'video, iframe, #kt_player, #player, #playerContainer, #videoContainer, #video_player, #EPvideo, #my-video, .video-js, .jwplayer, .plyr, .dplayer, .xgplayer, .fp-player, .rmp-player, .video-player, .main_video_player';
+
+  function isInsideOwnToolbar(node) {
+    if (!node) return false;
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    return Boolean(element?.closest?.('#videoplay-fab'));
+  }
+
+  function nodeMatchesOrContains(node, selector) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    try { return Boolean(node.matches?.(selector) || node.querySelector?.(selector)); }
+    catch (_) { return false; }
+  }
+
+  function nodeIsOrContainsToolbar(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    return node.id === 'videoplay-fab' || Boolean(node.querySelector?.('#videoplay-fab'));
+  }
+
   function installVideoVisibilityWatcher() {
     if (visibilityObserver || !document.documentElement) return;
     visibilityObserver = new MutationObserver(function (mutations) {
       for (const m of mutations) {
-        if (m.type === 'childList') {
-          for (const n of m.addedNodes) {
-            if (n.nodeType !== 1) continue;
-            if (n.matches?.('video, iframe, #kt_player, #player, #playerContainer, #videoContainer, #video_player, #EPvideo, #my-video, .video-js, .jwplayer, .plyr, .dplayer, .xgplayer, .fp-player, .rmp-player, .video-player, .main_video_player') || n.querySelector?.('video, iframe, #kt_player, #player, #playerContainer, #videoContainer, #video_player, #EPvideo, #my-video, .video-js, .jwplayer, .plyr, .dplayer, .xgplayer, .fp-player, .rmp-player, .video-player, .main_video_player')) {
-              scheduleVisibilityRefresh(160);
-              return;
-            }
-          }
-        } else if (m.type === 'attributes') {
+        if (m.type === 'attributes') {
+          if (isInsideOwnToolbar(m.target)) continue;
           scheduleVisibilityRefresh(160);
           return;
+        }
+        if (m.type !== 'childList' || isInsideOwnToolbar(m.target)) continue;
+        for (const node of m.removedNodes) {
+          if (nodeIsOrContainsToolbar(node)) {
+            scheduleVisibilityRefresh(0);
+            return;
+          }
+        }
+        for (const node of m.addedNodes) {
+          if (node?.id === 'videoplay-fab') continue;
+          if (nodeMatchesOrContains(node, VIDEO_RELEVANT_SELECTOR)) {
+            scheduleVisibilityRefresh(160);
+            return;
+          }
+        }
+        for (const node of m.removedNodes) {
+          if (nodeMatchesOrContains(node, VIDEO_RELEVANT_SELECTOR)) {
+            scheduleVisibilityRefresh(80);
+            return;
+          }
         }
       }
     });

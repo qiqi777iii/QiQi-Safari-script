@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.2
+// @version      2.0.3
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -29,6 +29,8 @@
     const DEFAULT_RIGHT = PAGER_RIGHT_GAP + FALLBACK_PAGER_WIDTH + LINK_PAGER_GAP;
     const CURRENT_LAYOUT_VERSION = '1.1.3-toolbar-v3';
     const GROUP_DRAG_EVENT = 'qiqi-floating-toolbar-group-drag';
+    const SHARED_URL_CHANGE_EVENT = 'qiqi:urlchange';
+    const SHARED_HISTORY_HOOK_KEY = '__qiqiSharedHistoryHookV1__';
     const GROUP_LEFT_WIDTH = 35;
 
     let enabled = true;
@@ -37,7 +39,6 @@
     let toolbar, linkBtn, bodyObserver, toolbarEnsureTimer, neighborResizeObserver, neighborMutationObserver, observedNeighbor;
     let menuRegistered = false;
     let listenersInstalled = false;
-    let historyHooked = false;
     let lastHref = location.href;
     let urlRefreshTimer = null;
     let savedPosition = null;
@@ -304,62 +305,68 @@
         return context?.preview.classList.contains('hidden') ? context : null;
     }
 
-    function activateMissAvPreview(e, a) {
-        const context = getMissAvHiddenPreview(a);
-        if (!context) return false;
+    function hasNativePreviewHandler(a, context) {
+        return [a, context.previewLink, context.preview, context.card].filter(Boolean).some(function (node) {
+            return node.getAttributeNames?.().some(function (name) {
+                return /^(?:onclick|onpointerup|ontouchend|@click(?:\.|$)|x-on:click(?:\.|$)|data-action|data-preview-action)$/i.test(name);
+            });
+        });
+    }
+
+    function activateMissAvPreview(context) {
         const { preview, previewLink } = context;
-        e.preventDefault();
         const src = preview.getAttribute('src') || preview.getAttribute('data-src');
         if (src && !preview.getAttribute('src')) preview.setAttribute('src', src);
         preview.classList.remove('hidden');
-        const image = previewLink.querySelector('img');
-        image?.classList.add('hidden');
+        previewLink.querySelector('img')?.classList.add('hidden');
         const task = preview.play?.();
-        if (task && typeof task.catch === 'function') task.catch(function () {});
-        return true;
+        if (task?.catch) task.catch(function () {});
+    }
+
+    function hasInlineAction(a) {
+        return a.getAttributeNames?.().some(function (name) {
+            return /^(?:onclick|onmousedown|onmouseup|onpointerdown|onpointerup|ontouchstart|ontouchend|@click(?:\.|$)|x-on:click(?:\.|$)|data-action|data-confirm|data-method|data-turbo-method|data-remote|formaction|hx-(?:post|put|patch|delete))$/i.test(name);
+        });
     }
 
     function isExplicitInteractiveLink(a) {
-        const target = (a.getAttribute('target') || '').trim().toLowerCase();
-        if (target && target !== '_blank') return true;
-        if (a.hasAttribute('download') || a.closest('form')) return true;
-        if (a.hasAttribute('onclick')) return true;
-        return Boolean(a.closest('[role="button"], [aria-haspopup], [data-confirm], [data-method], [data-turbo-method], [data-action]'));
+        if (a.hasAttribute('target') || a.hasAttribute('download') || a.hasAttribute('ping') || hasInlineAction(a)) return true;
+        const marker = [a.id, a.className, a.getAttribute('rel'), a.getAttribute('role'), a.getAttribute('data-lightbox'), a.getAttribute('data-fancybox'), a.getAttribute('data-gallery')].filter(Boolean).join(' ');
+        if (/(?:^|[\s_-])(?:preview|lightbox|fancybox|modal|gallery|photoswipe|viewer|zoom)(?:[\s_-]|$)/i.test(marker)) return true;
+        return Boolean(a.closest('form, dialog, [role="dialog"], [role="button"], [aria-haspopup], [data-confirm], [data-method], [data-turbo-method], [data-action], [contenteditable="true"]'));
     }
 
     function getBackgroundOpenUrl(a) {
-        if (!enabled || !a || a.dataset.tbInternalOpen === 'true') return null;
-        if (isPaginationLink(a) || isExplicitInteractiveLink(a)) return null;
-
+        if (!enabled || !a || a.dataset.tbInternalOpen === 'true' || isPaginationLink(a) || isExplicitInteractiveLink(a)) return null;
         const rawHref = (a.getAttribute('href') || '').trim();
         if (!rawHref || rawHref[0] === '#') return null;
-
         let url;
         try { url = new URL(rawHref, document.baseURI); } catch (_) { return null; }
-        if (!/^https?:$/i.test(url.protocol)) return null;
-
-        // 登录、退出、结账、支付和确认流程通常依赖当前页状态或站点脚本，保持原行为。
-        if (/(?:^|\/)(?:login|log-in|signin|sign-in|logout|log-out|checkout|payment|pay|confirm)(?:[\/?#]|$)/i.test(url.pathname)) return null;
-
+        if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return null;
+        const marker = `${url.hostname} ${url.pathname} ${url.search} ${a.id || ''} ${typeof a.className === 'string' ? a.className : ''}`;
+        if (/(?:^|[\/_.-])(?:login|signin|signout|logout|auth|authorize|oauth|sso|saml|account|checkout|payment|pay|billing|subscribe|purchase|confirm|action|delete|remove|follow|like|vote|favorite|bookmark|cart)(?:[\/_.?#-]|$)/i.test(marker)) return null;
+        for (const key of url.searchParams.keys()) if (/^(?:action|method|cmd|command|do|operation)$/i.test(key)) return null;
         const current = new URL(location.href);
-        const sameDocument = url.origin === current.origin && url.pathname === current.pathname && url.search === current.search;
-        if (sameDocument && url.hash) return null;
+        if (url.origin === current.origin && url.pathname === current.pathname && url.search === current.search && url.hash) return null;
         return url.href;
     }
 
     function handleLinkOpen(e) {
-        if (!enabled || e.defaultPrevented || e.isTrusted === false || e.button > 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (!enabled || e.defaultPrevented || e.isTrusted === false || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         if (toolbar?.contains(e.target)) return;
         const a = findLinkTarget(e.target);
         if (!a || a.dataset.tbInternalOpen === 'true') return;
-
-        // MissAV 原生预览事件被过滤器移除时，首次点击只恢复预览；再次点击才按通用规则后台打开。
-        if (activateMissAvPreview(e, a)) return;
-
+        const preview = getMissAvHiddenPreview(a);
+        if (preview) {
+            if (hasNativePreviewHandler(a, preview)) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            activateMissAvPreview(preview);
+            return;
+        }
         const href = getBackgroundOpenUrl(a);
         if (!href) return;
-
-        // 只委托最终 click，不扫描或改写网页链接，也不阻断网站自己的冒泡监听器。
+        // 在冒泡末端只取消浏览器默认导航；保留站点已执行的目标/document 处理器。
         e.preventDefault();
         openLinkInBackground(href);
     }
@@ -735,19 +742,27 @@
         }, 80);
     }
 
+    function dispatchSharedUrlChange(kind) {
+        window.dispatchEvent(new CustomEvent(SHARED_URL_CHANGE_EVENT, { detail: { kind, href: location.href } }));
+    }
+
     function hookHistoryForUrlChange() {
-        if (historyHooked) return;
-        historyHooked = true;
+        window.addEventListener(SHARED_URL_CHANGE_EVENT, scheduleUrlRefresh);
+        if (window[SHARED_HISTORY_HOOK_KEY]?.eventName === SHARED_URL_CHANGE_EVENT) return;
+        try { window[SHARED_HISTORY_HOOK_KEY] = { version: 1, eventName: SHARED_URL_CHANGE_EVENT }; } catch (_) {}
         ['pushState', 'replaceState'].forEach(function (name) {
             const original = history[name];
-            if (typeof original !== 'function') return;
-            history[name] = function () {
+            if (typeof original !== 'function' || original.__qiqiUrlChangeEvent === SHARED_URL_CHANGE_EVENT) return;
+            const wrapped = function () {
                 const result = original.apply(this, arguments);
-                scheduleUrlRefresh();
+                dispatchSharedUrlChange(name);
                 return result;
             };
+            try { Object.defineProperty(wrapped, '__qiqiUrlChangeEvent', { value: SHARED_URL_CHANGE_EVENT }); } catch (_) {}
+            try { history[name] = wrapped; } catch (_) {}
         });
-        window.addEventListener('popstate', scheduleUrlRefresh);
+        window.addEventListener('popstate', function () { dispatchSharedUrlChange('popstate'); });
+        window.addEventListener('hashchange', function () { dispatchSharedUrlChange('hashchange'); });
     }
 
     function init() {

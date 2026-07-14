@@ -130,10 +130,17 @@ type DaySection = { key: number; label: string; items: Bookmark[] }
 const TRASH_RETENTION_KEY = "tab.trashRetentionDays"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "2.0"
+const APP_VERSION = "2.0.1"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = { version: string; date: string; items: string[] }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "2.0.1",
+    date: "2026-07-14",
+    items: [
+      "保护损坏收藏库，增加跨窗口平面文件锁与版本校验，并刷新 SPA 页面收藏状态。",
+    ],
+  },
   {
     version: "2.0",
     date: "2026-07-13",

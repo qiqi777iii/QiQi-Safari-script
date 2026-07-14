@@ -36,11 +36,17 @@ export type Store = {
   favorites?: Bookmark[]
   /** Soft-deleted group bookmarks. */
   trash?: TrashedBookmark[]
+  /** Revision used to reject stale whole-store writes from another surface. */
+  _revision?: string
   /** Last local modification time (ms). Used for sync conflict resolution. */
   updatedAt?: number
 }
 
 const FILE = FileManager.safariBrowserDirectory + "/tabs-saver-store.json"
+const LOCK_FILE = FileManager.safariBrowserDirectory + "/tabs-saver-store.json.lock"
+const LOCK_OWNER_PREFIX = FileManager.safariBrowserDirectory + "/tabs-saver-store.json.lock-owner-"
+const LOCK_STALE_MS = 12000
+const LOCK_WAIT_MS = 8000
 const SUBDIR_LEGACY_FILE = FileManager.safariBrowserDirectory + "/tabs-saver/store.json"
 const STORAGE_LEGACY_FILE = FileManager.safariBrowserStorageDirectory + "/tabs-saver/store.json"
 const LEGACY_FILE = FileManager.appGroupDocumentsDirectory + "/tabs-saver/store.json"
@@ -67,25 +73,28 @@ function parseStore(raw: string): Store | null {
   }
 }
 
-async function loadStoreFromFile(file: string): Promise<Store | null> {
+async function loadStoreFromFile(file: string, strict = false): Promise<Store | null> {
+  if (!(await FileManager.exists(file))) return null
   try {
-    if (!(await FileManager.exists(file))) return null
     const raw = await FileManager.readAsString(file)
-    return parseStore(raw)
-  } catch {
+    const parsed = parseStore(raw)
+    if (!parsed && strict) throw new Error("收藏库 JSON 已损坏或格式错误，已停止写入")
+    return parsed
+  } catch (error) {
+    if (strict) throw error instanceof Error ? error : new Error(String(error))
     return null
   }
 }
 
 export async function loadStore(): Promise<Store> {
-  const current = await loadStoreFromFile(FILE)
+  const current = await loadStoreFromFile(FILE, true)
   if (current) return current
 
   // One-time migrations from older storage locations, newest attempt first.
   for (const old of [SUBDIR_LEGACY_FILE, STORAGE_LEGACY_FILE, LEGACY_FILE]) {
     const legacy = await loadStoreFromFile(old)
     if (legacy) {
-      await overwriteStore(legacy)
+      await overwriteStore(legacy, { requireMissing: true })
       return legacy
     }
   }
@@ -93,14 +102,77 @@ export async function loadStore(): Promise<Store> {
   return emptyStore()
 }
 
+function nextRevision(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function acquireStoreLock(): Promise<{ ownerFile: string }> {
+  const ownerFile = LOCK_OWNER_PREFIX + nextRevision()
+  await FileManager.writeAsString(ownerFile, JSON.stringify({ ownerFile, expiresAt: Date.now() + LOCK_STALE_MS }))
+  const deadline = Date.now() + LOCK_WAIT_MS
+  while (Date.now() < deadline) {
+    try {
+      await FileManager.createLink(LOCK_FILE, ownerFile)
+      return { ownerFile }
+    } catch {
+      try {
+        const lease = JSON.parse(await FileManager.readAsString(LOCK_FILE)) as { expiresAt?: number }
+        if (Number(lease.expiresAt) > 0 && Number(lease.expiresAt) < Date.now()) {
+          await FileManager.remove(LOCK_FILE)
+          continue
+        }
+      } catch {}
+      await sleep(40 + Math.floor(Math.random() * 80))
+    }
+  }
+  try { await FileManager.remove(ownerFile) } catch {}
+  throw new Error("收藏库正在被其他窗口更新，请稍后重试")
+}
+
+async function releaseStoreLock(lock: { ownerFile: string }): Promise<void> {
+  try {
+    if (FileManager.destinationOfSymbolicLink(LOCK_FILE) === lock.ownerFile) await FileManager.remove(LOCK_FILE)
+  } catch {}
+  try { await FileManager.remove(lock.ownerFile) } catch {}
+}
+
 export async function saveStore(store: Store): Promise<void> {
-  store.updatedAt = Date.now()
-  await FileManager.writeAsString(FILE, JSON.stringify(store))
+  const lock = await acquireStoreLock()
+  try {
+    const current = await loadStoreFromFile(FILE)
+    if (current?._revision && store._revision !== current._revision) {
+      throw new Error("收藏库已在其他窗口更新，请刷新后重试")
+    }
+    store.updatedAt = Date.now()
+    store._revision = nextRevision()
+    await FileManager.writeAsString(FILE, JSON.stringify(store))
+    const verified = await loadStoreFromFile(FILE)
+    if (verified?._revision !== store._revision) throw new Error("收藏库写入验证失败，请重试")
+  } finally {
+    await releaseStoreLock(lock)
+  }
 }
 
 /** Overwrite local store with a full object (e.g. pulled from cloud) without bumping updatedAt. */
-export async function overwriteStore(store: Store): Promise<void> {
-  await FileManager.writeAsString(FILE, JSON.stringify(store))
+export async function overwriteStore(store: Store, options: { expectedRevision?: string; requireMissing?: boolean } = {}): Promise<void> {
+  const lock = await acquireStoreLock()
+  try {
+    const current = await loadStoreFromFile(FILE, true)
+    if (options.requireMissing && current) {
+      throw new Error("目标收藏库已创建，已停止旧数据迁移")
+    }
+    if (!options.requireMissing && current?._revision !== options.expectedRevision) {
+      throw new Error("收藏库已在其他窗口更新，请重新执行恢复")
+    }
+    store._revision = nextRevision()
+    await FileManager.writeAsString(FILE, JSON.stringify(store))
+  } finally {
+    await releaseStoreLock(lock)
+  }
 }
 
 /** Ensure there is at least one group; returns the group to use as default. */

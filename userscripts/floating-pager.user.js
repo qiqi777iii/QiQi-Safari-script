@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         悬浮翻页
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.8
+// @version      2.0.9
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @description  自动识别页面的上一页和下一页，并提供关闭标签页、刷新及可拖动的悬浮翻页按钮。
@@ -42,6 +42,7 @@
     lastUrl: location.href,
     observer: null,
     fallbackTimer: null,
+    fallbackAttempt: 0,
     updateTimer: null,
     navigating: false,
     savedPosition: null,
@@ -127,17 +128,29 @@
       .trim();
   }
 
+  function paginationContainer(el) {
+    return el?.closest?.('.pagination, .pager, .pages, .page-numbers, [class*=pagination], [class*=pager], [class*=page-numbers], [id*=pagination], [id*=pager], [role="navigation"][aria-label*="page" i], [role="navigation"][aria-label*="分页"]') || null;
+  }
+
+  function deniedPaginationCandidate(el) {
+    if (!el) return true;
+    const all = `${normalizeText(el)} ${el.getAttribute?.('href') || ''} ${el.getAttribute?.('action') || ''}`;
+    return Boolean(el.hasAttribute?.('download') || /pay(?:ment|wall)?|log[\s_-]?in|sign[\s_-]?in|download|preview|subscri(?:be|ption)|支付|付费|购买|登录|登陆|下载|预览|订阅/i.test(all));
+  }
+
   function scoreCandidate(el, direction) {
-    if (!visible(el) || disabled(el)) return -999;
+    if (!visible(el) || disabled(el) || deniedPaginationCandidate(el)) return -999;
     const text = normalizeText(el).toLowerCase();
     const href = (el.getAttribute("href") || "").toLowerCase();
     const all = `${text} ${href}`;
+    const inPagination = Boolean(paginationContainer(el));
     let score = 0;
 
     if (direction === "next") {
-      if (/\bnext\b|下一页|下页|后一页|后页|下一章|下章|更多|加载更多|older|forward|more/.test(all)) score += 80;
+      if (/\bnext\b|下一页|下页|后一页|后页|下一章|下章|older|forward/.test(all)) score += 80;
       if (/[›»→＞>]|^\s*下\s*$/.test(text)) score += 65;
       if (/rel=["']?next|\bnext\b/.test(all) || el.getAttribute("rel") === "next") score += 70;
+      if (inPagination && /加载更多|更多|\bload\s+more\b|\bmore\b/.test(text)) score += 80;
       if (/page[=/_-]?\d+|p=\d+|paged=\d+/.test(href)) score += 10;
     } else {
       if (/\bprev\b|\bprevious\b|上一页|上页|前一页|前页|上一章|上章|newer|\bback\b/.test(all)) score += 80;
@@ -145,12 +158,10 @@
       if (/rel=["']?prev|\bprev\b|\bprevious\b/.test(all) || el.getAttribute("rel") === "prev") score += 70;
       if (/page[=/_-]?\d+|p=\d+|paged=\d+/.test(href)) score += 10;
     }
-
-    const tag = el.tagName;
-    if (tag === "A") score += 15;
-    if (tag === "BUTTON") score += 12;
-    if (el.closest(".pagination, .pager, .pages, .page-numbers, [class*=pagination], [class*=pager], [class*=page-numbers], [id*=pagination], [id*=pager]")) score += 35;
-    if (/comment|reply|share|login|广告|ad-|banner/.test(all)) score -= 40;
+    if (el.tagName === "A") score += 15;
+    if (el.tagName === "BUTTON") score += 12;
+    if (inPagination) score += 35;
+    if (/comment|reply|share|广告|ad-|banner/.test(all)) score -= 40;
     return score;
   }
 
@@ -209,15 +220,13 @@
     }
 
     const byRel = findByRel(direction);
-    if (byRel && byRel.href && !disabled(byRel)) return byRel;
+    if (byRel && byRel.href && !disabled(byRel) && !deniedPaginationCandidate(byRel)) return byRel;
 
     const selectors = [
       "a[href]",
       "button",
       "input[type=button]",
-      "input[type=submit]",
       "[role=button]",
-      "[onclick]",
       ".next",
       ".prev",
       ".previous",
@@ -1140,6 +1149,9 @@
 
   function hardNavigate(url) {
     if (!url || STATE.navigating) return;
+    let target;
+    try { target = new URL(url, location.href).href; } catch (_) { return; }
+    if (!/^https?:/i.test(target)) return;
     STATE.navigating = true;
     try {
       const box = $(`#${SCRIPT_ID}`);
@@ -1148,19 +1160,7 @@
         box.style.opacity = "0.72";
       }
     } catch (_) {}
-
-    const target = new URL(url, location.href).href;
-    // 用 assign 强制整页导航；部分站点/移动 Safari 下直接改 location.href 可能只改历史状态。
     window.location.assign(target);
-
-    // 如果站点脚本拦截导致 0.8 秒后仍停在原文档，强制刷新目标地址。
-    setTimeout(() => {
-      if (location.href !== target) {
-        window.location.href = target;
-      } else {
-        window.location.reload();
-      }
-    }, 800);
   }
 
   async function closeCurrentTab() {
@@ -1234,27 +1234,43 @@
 
   function clickOrNavigate(el) {
     if (!el || STATE.navigating) return;
-    if (el.__paginationElement) {
-      clickOrNavigate(el.__paginationElement);
-      return;
-    }
-    if (el.__paginationUrl) {
-      hardNavigate(el.__paginationUrl);
-      return;
-    }
+    if (el.__paginationElement) return clickOrNavigate(el.__paginationElement);
+    if (el.__paginationUrl) return hardNavigate(el.__paginationUrl);
+    if (!(el instanceof Element) || deniedPaginationCandidate(el)) return;
     const link = el.tagName === "A" || el.tagName === "LINK" ? el : el.closest("a[href]");
-    if (isRule34AjaxPaginationLink(link)) {
-      clickRule34AjaxPagination(link);
+    const clickTarget = link || el;
+    if (!(clickTarget instanceof HTMLElement) || (link && deniedPaginationCandidate(link))) return;
+    let targetUrl = "";
+    try { targetUrl = link?.href ? new URL(link.href, location.href).href : ""; } catch (_) {}
+    const canFallback = Boolean(targetUrl && /^https?:/i.test(targetUrl) && (!link.target || link.target.toLowerCase() === "_self"));
+    if (!link) {
+      HTMLElement.prototype.click.call(clickTarget);
+      scheduleEventUpdate();
       return;
     }
-    if (link && link.href) {
-      hardNavigate(link.href);
+    const startUrl = location.href;
+    const targetContext = paginationContainer(link) || link.parentElement;
+    let targetChanged = false;
+    const observer = targetContext ? new MutationObserver(() => { targetChanged = true; }) : null;
+    observer?.observe(targetContext, { subtree: true, childList: true, characterData: true, attributes: true });
+    STATE.navigating = true;
+    try { HTMLElement.prototype.click.call(clickTarget); }
+    catch (error) {
+      observer?.disconnect();
+      STATE.navigating = false;
+      log("原生点击分页元素失败", error);
       return;
     }
-    el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
-    el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    el.click();
+    setTimeout(() => {
+      observer?.disconnect();
+      if (location.href === startUrl && !targetChanged && link.isConnected && canFallback) {
+        STATE.navigating = false;
+        hardNavigate(targetUrl);
+      } else {
+        STATE.navigating = false;
+        scheduleEventUpdate();
+      }
+    }, 800);
   }
 
   function getViewportBox() {
@@ -1917,20 +1933,32 @@
 
   function scheduleUpdate(delay = 250) {
     clearTimeout(STATE.updateTimer);
-    STATE.updateTimer = setTimeout(() => runWhenIdle(updateMenu, 800), delay);
+    STATE.updateTimer = null;
+    if (document.hidden) return;
+    STATE.updateTimer = setTimeout(() => {
+      STATE.updateTimer = null;
+      if (!document.hidden) runWhenIdle(() => { if (!document.hidden) updateMenu(); }, 800);
+    }, delay);
   }
 
   function scheduleEventUpdate(withFallback = true) {
     scheduleUpdate(0);
     if (STATE.fallbackTimer) clearTimeout(STATE.fallbackTimer);
     STATE.fallbackTimer = null;
-    if (!withFallback) return;
+    STATE.fallbackAttempt = 0;
+    if (document.hidden || !withFallback) return;
 
-    // 只为晚渲染分页的站点保留一次低成本兜底；不观察 body 子树，也不持续轮询。
-    STATE.fallbackTimer = setTimeout(() => {
+    const retryLatePagination = () => {
       STATE.fallbackTimer = null;
-      if (!STATE.prev && !STATE.next) scheduleUpdate(0);
-    }, 1000);
+      if (document.hidden || STATE.prev || STATE.next) return;
+      scheduleUpdate(0);
+      STATE.fallbackAttempt += 1;
+      const delays = [1000, 2000, 4000];
+      if (STATE.fallbackAttempt < delays.length) {
+        STATE.fallbackTimer = setTimeout(retryLatePagination, delays[STATE.fallbackAttempt]);
+      }
+    };
+    STATE.fallbackTimer = setTimeout(retryLatePagination, 1000);
   }
 
   function hookHistory() {

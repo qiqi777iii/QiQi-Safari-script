@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 2.0
+// @version 2.0.1
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -19,6 +19,11 @@
   const TOAST_ID = "qiqi-tab-save-toast"
   const DIALOG_ID = "qiqi-tab-save-dialog"
   const STORE_FILE_NAME = "tabs-saver-store.json"
+  const STORE_LOCK_FILE = `${STORE_FILE_NAME}.lock`
+  const STORE_LOCK_STALE_MS = 12000
+  const STORE_LOCK_WAIT_MS = 8000
+  const SHARED_URL_CHANGE_EVENT = "qiqi:urlchange"
+  const SHARED_HISTORY_HOOK_KEY = "__qiqiSharedHistoryHookV1__"
   const DEFAULT_GROUP_NAME = "默认"
   const BTN_SIZE = 35
 
@@ -44,6 +49,7 @@
   let observedHead = null
   let healthCheckQueued = false
   let globalListenersInstalled = false
+  let lastPageHref = location.href
 
   function lsGet(key, def) {
     try {
@@ -98,21 +104,108 @@
     return metaTitle || document.title.trim() || location.href
   }
 
-  async function loadStore(file) {
-    try {
-      if (!(await Scripting.FileManager.exists(file))) return { version: 1, groups: [] }
-      const raw = await Scripting.FileManager.readAsString(file)
-      const data = JSON.parse(raw)
-      if (!data || !Array.isArray(data.groups)) return { version: 1, groups: [] }
-      return data
-    } catch (_) {
-      return { version: 1, groups: [] }
+  function storeFingerprint(raw) {
+    let hash = 2166136261
+    for (let index = 0; index < raw.length; index += 1) {
+      hash ^= raw.charCodeAt(index)
+      hash = Math.imul(hash, 16777619)
     }
+    return (hash >>> 0).toString(36)
   }
 
-  async function saveStore(file, store) {
+  async function readStoreSnapshot(file) {
+    const exists = await Scripting.FileManager.exists(file)
+    if (!exists) return { store: { version: 1, groups: [] }, signature: "missing" }
+    let raw
+    try {
+      raw = await Scripting.FileManager.readAsString(file)
+    } catch (error) {
+      throw new Error(`收藏库读取失败：${error?.message || error}`)
+    }
+    let data
+    try {
+      data = JSON.parse(raw)
+    } catch (_) {
+      throw new Error("收藏库 JSON 已损坏，已停止写入")
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data) || !Array.isArray(data.groups)) {
+      throw new Error("收藏库格式错误，已停止写入")
+    }
+    return { store: data, signature: `${data._revision || "legacy"}:${storeFingerprint(raw)}` }
+  }
+
+  async function loadStore(file) {
+    return (await readStoreSnapshot(file)).store
+  }
+
+  function cloneStore(store) {
+    return JSON.parse(JSON.stringify(store))
+  }
+
+  function nextRevision() {
+    return `${now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  }
+
+  async function saveStore(file, store, revision = nextRevision()) {
     store.updatedAt = now()
+    store._revision = revision
     await Scripting.FileManager.writeAsString(file, JSON.stringify(store))
+    return revision
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  async function acquireStoreLock(file) {
+    const dir = file.slice(0, file.lastIndexOf("/"))
+    const lockFile = `${dir}/${STORE_LOCK_FILE}`
+    const ownerFile = `${dir}/${STORE_LOCK_FILE}-owner-${nextRevision()}`
+    const owner = { ownerFile, expiresAt: now() + STORE_LOCK_STALE_MS }
+    const deadline = now() + STORE_LOCK_WAIT_MS
+    await Scripting.FileManager.writeAsString(ownerFile, JSON.stringify(owner))
+    while (now() < deadline) {
+      try {
+        await Scripting.FileManager.createLink(lockFile, ownerFile)
+        return { lockFile, ownerFile }
+      } catch (_) {
+        try {
+          const lease = JSON.parse(await Scripting.FileManager.readAsString(lockFile))
+          if (Number(lease?.expiresAt) > 0 && Number(lease.expiresAt) < now()) {
+            await Scripting.FileManager.remove(lockFile)
+            continue
+          }
+        } catch (_) {}
+        await sleep(40 + Math.floor(Math.random() * 80))
+      }
+    }
+    try { await Scripting.FileManager.remove(ownerFile) } catch (_) {}
+    throw new Error("收藏库正在被其他窗口更新，请稍后重试")
+  }
+
+  async function releaseStoreLock(lock) {
+    try {
+      if (Scripting.FileManager.destinationOfSymbolicLink(lock.lockFile) === lock.ownerFile) {
+        await Scripting.FileManager.remove(lock.lockFile)
+      }
+    } catch (_) {}
+    try { await Scripting.FileManager.remove(lock.ownerFile) } catch (_) {}
+  }
+
+  async function updateStore(file, operation) {
+    const lock = await acquireStoreLock(file)
+    try {
+      const before = await readStoreSnapshot(file)
+      const working = cloneStore(before.store)
+      const result = operation(working)
+      if (result?.changed === false) return { store: working, result, written: false }
+      const revision = await saveStore(file, working)
+      const verified = await readStoreSnapshot(file)
+      if (verified.store._revision !== revision) throw new Error("收藏库写入验证失败，请重试")
+      return { store: verified.store, result, written: true }
+    } finally {
+      await releaseStoreLock(lock)
+    }
   }
 
   function ensureGroups(store) {
@@ -227,14 +320,15 @@
 
   async function saveTabs(tabs, currentId, groupId, closeAfter) {
     const { file } = storePath()
-    const store = await loadStore(file)
-    const group = groupId
-      ? ensureGroups(store).find(item => item && item.id === groupId)
-      : ensureDefaultGroup(store)
-    if (!group) throw new Error("分组不存在，请刷新页面后重试")
-
-    const added = addTabsToGroup(group, tabs)
-    if (added > 0) await saveStore(file, store)
+    const transaction = await updateStore(file, store => {
+      const group = groupId
+        ? ensureGroups(store).find(item => item && item.id === groupId)
+        : ensureDefaultGroup(store)
+      if (!group) throw new Error("分组不存在，请刷新页面后重试")
+      const added = addTabsToGroup(group, tabs)
+      return { changed: added > 0, added }
+    })
+    const added = transaction.result.added
     if (!closeAfter) {
       showToast(added > 0 ? `已收藏 ${added} 个标签页` : "已收藏过")
       setSavedVisual(true)
@@ -249,14 +343,17 @@
     const groupName = String(name || "").trim()
     if (!groupName) throw new Error("分组名不能为空")
     const { file } = storePath()
-    const store = await loadStore(file)
-    const groups = ensureGroups(store)
-    const existing = groups.find(group => String(group?.name || "").trim() === groupName)
-    if (existing) return existing
-    const group = { id: uid(), name: groupName, createdAt: now(), bookmarks: [] }
-    groups.push(group)
-    await saveStore(file, store)
-    return group
+    const groupId = uid()
+    const createdAt = now()
+    const transaction = await updateStore(file, store => {
+      const groups = ensureGroups(store)
+      const existing = groups.find(group => String(group?.name || "").trim() === groupName)
+      if (existing) return { changed: false, group: existing }
+      const group = { id: groupId, name: groupName, createdAt, bookmarks: [] }
+      groups.push(group)
+      return { changed: true, group }
+    })
+    return transaction.result.group
   }
 
   async function showSaveDialog() {
@@ -270,10 +367,18 @@
     ])
     const currentSelection = selections.current
     const allSelection = selections.all
-    const groupCount = ensureGroups(store).length
-    ensureDefaultGroup(store)
-    if (ensureGroups(store).length !== groupCount) await saveStore(file, store)
-    const groups = sortGroups(ensureGroups(store))
+    let dialogStore = store
+    const groupCount = ensureGroups(dialogStore).length
+    ensureDefaultGroup(dialogStore)
+    if (ensureGroups(dialogStore).length !== groupCount) {
+      const transaction = await updateStore(file, latestStore => {
+        const before = ensureGroups(latestStore).length
+        ensureDefaultGroup(latestStore)
+        return { changed: ensureGroups(latestStore).length !== before }
+      })
+      dialogStore = transaction.store
+    }
+    const groups = sortGroups(ensureGroups(dialogStore))
     const currentId = currentSelection.currentId
 
     const overlay = document.createElement("div")
@@ -371,30 +476,34 @@
 
   async function saveToDefault() {
     const { file } = storePath()
-    const store = await loadStore(file)
-    const group = ensureDefaultGroup(store)
-    if (!addCurrentPageToGroup(group)) {
+    const transaction = await updateStore(file, store => {
+      const group = ensureDefaultGroup(store)
+      const added = addCurrentPageToGroup(group)
+      return { changed: added, added }
+    })
+    if (!transaction.result.added) {
       showToast("已收藏过")
       setSavedVisual(true)
       return
     }
-    await saveStore(file, store)
     showToast("已收藏到默认")
     setSavedVisual(true)
   }
 
   async function saveToGroup(groupId) {
     const { file } = storePath()
-    const store = await loadStore(file)
-    const group = ensureGroups(store).find(item => item && item.id === groupId)
-    if (!group) throw new Error("分组不存在，请刷新页面后重试")
-    if (!addCurrentPageToGroup(group)) {
+    const transaction = await updateStore(file, store => {
+      const group = ensureGroups(store).find(item => item && item.id === groupId)
+      if (!group) throw new Error("分组不存在，请刷新页面后重试")
+      const added = addCurrentPageToGroup(group)
+      return { changed: added, added, groupName: group.name || DEFAULT_GROUP_NAME }
+    })
+    if (!transaction.result.added) {
       showToast("该分组已收藏过")
       setSavedVisual(true)
       return
     }
-    await saveStore(file, store)
-    showToast(`已收藏到${group.name || DEFAULT_GROUP_NAME}`)
+    showToast(`已收藏到${transaction.result.groupName}`)
     setSavedVisual(true)
   }
 
@@ -406,47 +515,65 @@
     }
 
     const { file } = storePath()
-    const store = await loadStore(file)
-    const groups = ensureGroups(store)
-    const existing = groups.find(group => String(group?.name || "").trim() === groupName)
-    if (existing) {
-      await saveToGroup(existing.id)
-      return
-    }
-
-    const group = { id: uid(), name: groupName, createdAt: now(), bookmarks: [] }
-    addCurrentPageToGroup(group)
-    groups.push(group)
-    await saveStore(file, store)
-    showToast(`已新建并收藏到${group.name}`)
+    const groupId = uid()
+    const createdAt = now()
+    const transaction = await updateStore(file, store => {
+      const groups = ensureGroups(store)
+      let group = groups.find(item => String(item?.name || "").trim() === groupName)
+      let created = false
+      if (!group) {
+        group = { id: groupId, name: groupName, createdAt, bookmarks: [] }
+        groups.push(group)
+        created = true
+      }
+      const added = addCurrentPageToGroup(group)
+      return { changed: created || added, created, added, groupName: group.name }
+    })
+    showToast(transaction.result.created ? `已新建并收藏到${transaction.result.groupName}` : transaction.result.added ? `已收藏到${transaction.result.groupName}` : "该分组已收藏过")
     setSavedVisual(true)
   }
 
   async function removeCurrentPage() {
     const { file } = storePath()
-    const store = await loadStore(file)
     const url = normalizeUrl(location.href)
-    let removed = 0
-    for (const group of ensureGroups(store)) {
-      if (!Array.isArray(group.bookmarks)) continue
-      const before = group.bookmarks.length
-      group.bookmarks = group.bookmarks.filter(bookmark => normalizeUrl(bookmark?.url || "") !== url)
-      removed += before - group.bookmarks.length
-    }
-    if (removed > 0) {
-      await saveStore(file, store)
-      showToast("已移除收藏")
-    } else {
-      showToast("未收藏")
-    }
+    const transaction = await updateStore(file, store => {
+      let removed = 0
+      for (const group of ensureGroups(store)) {
+        if (!Array.isArray(group.bookmarks)) continue
+        const before = group.bookmarks.length
+        group.bookmarks = group.bookmarks.filter(bookmark => normalizeUrl(bookmark?.url || "") !== url)
+        removed += before - group.bookmarks.length
+      }
+      return { changed: removed > 0, removed }
+    })
+    showToast(transaction.result.removed > 0 ? "已移除收藏" : "未收藏")
     setSavedVisual(false)
   }
 
   async function toggleCurrentPage() {
     const { file } = storePath()
-    const store = await loadStore(file)
-    if (hasBookmark(store, location.href)) await removeCurrentPage()
-    else await saveToDefault()
+    const url = normalizeUrl(location.href)
+    const transaction = await updateStore(file, store => {
+      if (hasBookmark(store, url)) {
+        let removed = 0
+        for (const group of ensureGroups(store)) {
+          if (!Array.isArray(group.bookmarks)) continue
+          const before = group.bookmarks.length
+          group.bookmarks = group.bookmarks.filter(bookmark => normalizeUrl(bookmark?.url || "") !== url)
+          removed += before - group.bookmarks.length
+        }
+        return { changed: removed > 0, action: "removed" }
+      }
+      const added = addCurrentPageToGroup(ensureDefaultGroup(store))
+      return { changed: added, action: added ? "added" : "none" }
+    })
+    if (transaction.result.action === "removed") {
+      showToast("已移除收藏")
+      setSavedVisual(false)
+    } else {
+      showToast(transaction.result.action === "added" ? "已收藏到默认" : "已收藏过")
+      setSavedVisual(true)
+    }
   }
 
   async function refreshSavedVisual() {
@@ -454,8 +581,8 @@
       const { file } = storePath()
       const store = await loadStore(file)
       setSavedVisual(hasBookmark(store, location.href))
-    } catch (_) {
-      setSavedVisual(false)
+    } catch (error) {
+      console.error("TabsSaver: 无法刷新收藏状态", error)
     }
   }
 
@@ -700,15 +827,55 @@
     }
   }
 
+  function dispatchSharedUrlChange(kind) {
+    window.dispatchEvent(new CustomEvent(SHARED_URL_CHANGE_EVENT, { detail: { kind, href: location.href } }))
+  }
+
+  function installSharedHistoryHook() {
+    if (window[SHARED_HISTORY_HOOK_KEY]?.eventName === SHARED_URL_CHANGE_EVENT) return
+    try { window[SHARED_HISTORY_HOOK_KEY] = { version: 1, eventName: SHARED_URL_CHANGE_EVENT } } catch (_) {}
+    ;["pushState", "replaceState"].forEach(name => {
+      const original = history[name]
+      if (typeof original !== "function" || original.__qiqiUrlChangeEvent === SHARED_URL_CHANGE_EVENT) return
+      const wrapped = function (...args) {
+        const result = original.apply(this, args)
+        dispatchSharedUrlChange(name)
+        return result
+      }
+      try { Object.defineProperty(wrapped, "__qiqiUrlChangeEvent", { value: SHARED_URL_CHANGE_EVENT }) } catch (_) {}
+      try { history[name] = wrapped } catch (_) {}
+    })
+    window.addEventListener("popstate", () => dispatchSharedUrlChange("popstate"))
+    window.addEventListener("hashchange", () => dispatchSharedUrlChange("hashchange"))
+  }
+
   function installPositionListeners() {
     if (globalListenersInstalled) return
     globalListenersInstalled = true
+    installSharedHistoryHook()
     window.addEventListener("resize", schedulePositionStabilize)
     window.visualViewport?.addEventListener("resize", schedulePositionStabilize)
     window.visualViewport?.addEventListener("scroll", schedulePositionStabilize)
-    window.addEventListener("pageshow", () => { refreshSavedVisual(); scheduleHealthCheck() })
-    window.addEventListener("focus", refreshSavedVisual)
+    window.addEventListener("pageshow", () => { lastPageHref = location.href; refreshSavedVisual(); scheduleHealthCheck() })
+    window.addEventListener("focus", () => { if (location.href !== lastPageHref) lastPageHref = location.href; refreshSavedVisual() })
     window.addEventListener("load", scheduleHealthCheck, { once: true })
+    window.addEventListener(SHARED_URL_CHANGE_EVENT, () => {
+      if (location.href === lastPageHref) return
+      lastPageHref = location.href
+      closeGroupPicker()
+      document.getElementById(DIALOG_ID)?.remove()
+      refreshSavedVisual()
+    })
+    window.addEventListener("popstate", () => {
+      if (location.href === lastPageHref) return
+      lastPageHref = location.href
+      refreshSavedVisual()
+    })
+    window.addEventListener("hashchange", () => {
+      if (location.href === lastPageHref) return
+      lastPageHref = location.href
+      refreshSavedVisual()
+    })
     document.addEventListener("visibilitychange", () => { if (!document.hidden) { refreshSavedVisual(); scheduleHealthCheck() } })
   }
 

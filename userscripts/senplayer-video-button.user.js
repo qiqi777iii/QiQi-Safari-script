@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Senplayer播放
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version 0.1.30
+// @version 0.1.32
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @description 捕获当前网页视频地址，可一键复制地址或通过 SenPlayer 播放。
@@ -45,6 +45,12 @@
   let currentUrl = '';
   let dragging = false;
   let pointerStart = null;
+  let observedUrl = location.href;
+  let routeGeneration = 0;
+  let routeScanTimer = 0;
+  let pendingFullScan = false;
+  let scanBatchDepth = 0;
+  let scanBatchChanged = false;
 
   function log(...args) {
     try { console.log(`[${SCRIPT}]`, ...args); } catch (_) {}
@@ -175,7 +181,6 @@
   }
 
   function resolveAutoVideoUrl() {
-    scanDom();
     const pageVideoUrl = getCurrentPageVideoUrl();
     const best = pageVideoUrl || currentUrl || getBestDetectedUrl();
     if (best) currentUrl = best;
@@ -215,6 +220,15 @@
     return score;
   }
 
+  function beginScanBatch() { scanBatchDepth += 1; }
+
+  function endScanBatch() {
+    if (scanBatchDepth > 0) scanBatchDepth -= 1;
+    if (scanBatchDepth || !scanBatchChanged) return;
+    scanBatchChanged = false;
+    chooseBest();
+  }
+
   function addCandidate(input, source) {
     const url = absUrl(input);
     if (!url || !looksLikeVideo(url)) return false;
@@ -222,8 +236,9 @@
     const score = scoreUrl(url, source);
     if (!old || score > old.score) {
       DETECTED.set(url, { url, source, score, time: Date.now() });
+      if (scanBatchDepth) scanBatchChanged = true;
+      else chooseBest();
     }
-    chooseBest();
     return true;
   }
 
@@ -231,35 +246,84 @@
     const list = Array.from(DETECTED.values()).sort((a, b) => b.score - a.score || b.time - a.time);
     const best = list[0];
     currentUrl = best ? best.url : '';
+    if (!document.hidden) updateButton();
+  }
+
+  function scanElement(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'video' || tag === 'audio') {
+      addCandidate(el.currentSrc || el.src, 'video');
+      ['src', 'data-src', 'poster'].forEach((name) => addCandidate(el.getAttribute(name), 'video'));
+    } else if (tag === 'source') {
+      addCandidate(el.getAttribute('src') || el.getAttribute('data-src'), 'source');
+    } else if (tag === 'a' || tag === 'link') {
+      addCandidate(el.getAttribute('href'), tag);
+    }
+  }
+
+  function scanTree(root) {
+    if (!root || document.hidden) return;
+    const selector = 'video, audio, source[src], source[data-src], a[href], link[href]';
+    beginScanBatch();
+    try {
+      if (root.nodeType === Node.ELEMENT_NODE && root.matches(selector)) scanElement(root);
+      root.querySelectorAll?.(selector).forEach(scanElement);
+    } catch (e) { log('scanTree failed', e); }
+    finally { endScanBatch(); }
+  }
+
+  function extractHtmlCandidates(html, source = 'html') {
+    if (!html) return;
+    const re = /https?:\\?\/\\?\/[^\s"'<>\\]+?(?:\.m3u8|\.mp4|\.m4v|\.mov|\.webm|\/hls[0-9a-z]*\/|media=hls|type=video)(?:[^\s"'<>\\]*)?/ig;
+    let m;
+    let count = 0;
+    while ((m = re.exec(html)) && count < 60) {
+      addCandidate(m[0].replace(/\\\//g, '/').replace(/&amp;/g, '&'), source);
+      count += 1;
+    }
+  }
+
+  function extractConfigCandidates(html) {
+    if (!html) return;
+    const cfgRe = /(?:hlsAuto|hls|source|src|url)["'\s:=>=]+(https?:\\?\/\\?\/[^"'<>\s\\]+(?:\/hls[0-9a-z]*\/|media=hls|\.m3u8|\.mp4)[^"'<>\s\\]*)/ig;
+    let m;
+    let count = 0;
+    while ((m = cfgRe.exec(html)) && count < 40) {
+      addCandidate(m[1].replace(/\\\//g, '/').replace(/&amp;/g, '&'), 'html-config');
+      count += 1;
+    }
+  }
+
+  function scanFullPage() {
+    if (document.hidden) { pendingFullScan = true; return; }
+    beginScanBatch();
+    try {
+      scanTree(document);
+      const html = document.documentElement?.innerHTML || '';
+      extractHtmlCandidates(html);
+      extractConfigCandidates(html);
+    } finally { endScanBatch(); }
+    pendingFullScan = false;
     updateButton();
   }
 
-  function scanDom() {
-    try {
-      document.querySelectorAll('video, audio').forEach((el) => {
-        addCandidate(el.currentSrc || el.src, 'video');
-        ['src', 'data-src', 'poster'].forEach((name) => addCandidate(el.getAttribute(name), 'video'));
-      });
-      document.querySelectorAll('source, a[href], link[href]').forEach((el) => {
-        addCandidate(el.getAttribute('src') || el.getAttribute('href'), el.tagName.toLowerCase());
-      });
-      const html = document.documentElement ? document.documentElement.innerHTML : '';
-      const re = /https?:\\?\/\\?\/[^\s"'<>\\]+?(?:\.m3u8|\.mp4|\.m4v|\.mov|\.webm|\/hls[0-9a-z]*\/|media=hls|type=video)(?:[^\s"'<>\\]*)?/ig;
-      let m;
-      let count = 0;
-      while ((m = re.exec(html)) && count < 60) {
-        addCandidate(m[0].replace(/\\\//g, '/').replace(/&amp;/g, '&'), 'html');
-        count += 1;
-      }
-      // aShemaleTube 新版 tube-player-v3 会把真实 HLS 地址放在 JS 配置里，页面 video 只暴露 blob:。
-      // 这里额外抽取 sources/hlsAuto 一类配置，避免 SenPlayer 只能拿到 blob 地址。
-      const cfgRe = /(?:hlsAuto|hls|source|src|url)["'\s:=>=]+(https?:\\?\/\\?\/[^"'<>\s\\]+(?:\/hls[0-9a-z]*\/|media=hls|\.m3u8|\.mp4)[^"'<>\s\\]*)/ig;
-      count = 0;
-      while ((m = cfgRe.exec(html)) && count < 40) {
-        addCandidate(m[1].replace(/\\\//g, '/').replace(/&amp;/g, '&'), 'html-config');
-        count += 1;
-      }
-    } catch (e) { log('scanDom failed', e); }
+  function checkRoute() {
+    if (location.href === observedUrl) return false;
+    observedUrl = location.href;
+    routeGeneration += 1;
+    DETECTED.clear();
+    currentUrl = '';
+    document.getElementById(PANEL_ID)?.remove();
+    if (wrap) {
+      wrap.style.opacity = '0';
+      wrap.style.visibility = 'hidden';
+      wrap.style.pointerEvents = 'none';
+    }
+    pendingFullScan = true;
+    clearTimeout(routeScanTimer);
+    if (!document.hidden) routeScanTimer = setTimeout(scanFullPage, 250);
+    return true;
   }
 
   function hookNetwork() {
@@ -267,12 +331,13 @@
       const rawFetch = window.fetch;
       if (typeof rawFetch === 'function') {
         window.fetch = function (...args) {
+          const generation = routeGeneration;
           try {
             const u = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url);
-            addCandidate(u, 'network');
+            if (generation === routeGeneration) addCandidate(u, 'network');
           } catch (_) {}
           return rawFetch.apply(this, args).then((res) => {
-            try { addCandidate(res && res.url, 'network'); } catch (_) {}
+            try { if (generation === routeGeneration) addCandidate(res && res.url, 'network'); } catch (_) {}
             return res;
           });
         };
@@ -282,10 +347,11 @@
     try {
       const rawOpen = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-        try { addCandidate(url, 'network'); } catch (_) {}
+        const generation = routeGeneration;
+        try { if (generation === routeGeneration) addCandidate(url, 'network'); } catch (_) {}
         this.addEventListener('load', function () {
-          try { addCandidate(this.responseURL, 'network'); } catch (_) {}
-        });
+          try { if (generation === routeGeneration) addCandidate(this.responseURL, 'network'); } catch (_) {}
+        }, { once: true });
         return rawOpen.call(this, method, url, ...rest);
       };
     } catch (e) { log('xhr hook failed', e); }
@@ -389,11 +455,38 @@
 
   function bindDrag() {
     let longTimer = 0;
+    let longPressFired = false;
+
+    function clearGestureTimer() {
+      clearTimeout(longTimer);
+      longTimer = 0;
+    }
+
+    function finishGesture(e, cancelled) {
+      clearGestureTimer();
+      try { button.releasePointerCapture(e.pointerId); } catch (_) {}
+      const wasDragging = dragging;
+      const wasLongPress = longPressFired;
+      pointerStart = null;
+      dragging = false;
+      longPressFired = false;
+      if (cancelled) return;
+      if (wasDragging) savePosition();
+      else if (!wasLongPress) playCurrent().catch((error) => log('play failed', error));
+    }
+
     button.addEventListener('pointerdown', (e) => {
+      clearGestureTimer();
       pointerStart = { x: e.clientX, y: e.clientY, left: wrap.offsetLeft, top: wrap.offsetTop, t: Date.now() };
       dragging = false;
+      longPressFired = false;
       try { button.setPointerCapture(e.pointerId); } catch (_) {}
-      longTimer = setTimeout(() => { showPanel(); }, 650);
+      longTimer = setTimeout(() => {
+        longTimer = 0;
+        if (!pointerStart || dragging) return;
+        longPressFired = true;
+        showPanel();
+      }, 650);
     });
     button.addEventListener('pointermove', (e) => {
       if (!pointerStart) return;
@@ -401,17 +494,12 @@
       const dy = e.clientY - pointerStart.y;
       if (Math.abs(dx) + Math.abs(dy) > 8) {
         dragging = true;
-        clearTimeout(longTimer);
+        clearGestureTimer();
         setPosition(pointerStart.left + dx, pointerStart.top + dy);
       }
     });
-    button.addEventListener('pointerup', async (e) => {
-      clearTimeout(longTimer);
-      try { button.releasePointerCapture(e.pointerId); } catch (_) {}
-      if (dragging) savePosition(); else await playCurrent();
-      pointerStart = null;
-      setTimeout(() => { dragging = false; }, 0);
-    });
+    button.addEventListener('pointerup', (e) => finishGesture(e, false));
+    button.addEventListener('pointercancel', (e) => finishGesture(e, true));
   }
 
   function setPosition(left, top) {
@@ -492,7 +580,6 @@
       if (typeof GM === 'undefined' || !GM.registerMenuCommand) return;
       GM.registerMenuCommand('▶ 用 SenPlayer 播放当前视频', playCurrent);
       GM.registerMenuCommand('📋 复制当前视频地址', async () => {
-        scanDom();
         const url = resolveAutoVideoUrl();
         if (!url) return toast('未发现视频地址');
         await copyText(url);
@@ -506,30 +593,81 @@
   }
 
   function observe() {
-    const run = throttle(scanDom, 600);
     try {
-      new MutationObserver(() => { run(); applyNeighborPosition(); }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'href', 'style', 'class'] });
-    } catch (_) {}
-    window.addEventListener('pageshow', () => { createButton(); scanDom(); applyNeighborPosition(); });
-    window.addEventListener('focus', () => { createButton(); scanDom(); applyNeighborPosition(); });
-    window.addEventListener('resize', () => { applyNeighborPosition(); });
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) { createButton(); scanDom(); applyNeighborPosition(); } });
-    setInterval(() => { createButton(); scanDom(); applyNeighborPosition(); }, 3500);
-  }
+      new MutationObserver((records) => {
+        if (checkRoute()) return;
+        if (document.hidden) {
+          pendingFullScan = true;
+          return;
+        }
+        let refresh = false;
+        beginScanBatch();
+        try {
+          records.forEach((record) => {
+            if (record.type === 'attributes') {
+              scanElement(record.target);
+              refresh ||= /^(VIDEO|AUDIO|SOURCE)$/.test(record.target?.tagName || '');
+              return;
+            }
+            record.addedNodes.forEach((node) => {
+              scanTree(node);
+              if (node.nodeType === Node.TEXT_NODE && node.parentElement?.matches('script')) {
+                const text = node.nodeValue || '';
+                extractHtmlCandidates(text, 'html-config');
+                extractConfigCandidates(text);
+                return;
+              }
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.matches('script') || node.querySelector?.('script')) {
+                  const html = (node.outerHTML || '').slice(0, 1000000);
+                  extractHtmlCandidates(html, 'html-config');
+                  extractConfigCandidates(html);
+                }
+                refresh ||= node.matches('video, audio, [class*="tube-player-v3"]') || Boolean(node.querySelector?.('video, audio, [class*="tube-player-v3"]'));
+                if (node.id === 'videoplay-fab' || node.querySelector?.('#videoplay-fab')) applyNeighborPosition();
+              }
+            });
+          });
+        } finally { endScanBatch(); }
+        if (refresh) updateButton();
+      }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'href', 'data-src', 'poster'] });
+    } catch (e) { log('observer failed', e); }
 
-  function throttle(fn, delay) {
-    let timer = 0;
-    return function () {
-      if (timer) return;
-      timer = setTimeout(() => { timer = 0; fn(); }, delay);
-    };
+    try {
+      ['pushState', 'replaceState'].forEach((method) => {
+        const raw = history[method];
+        history[method] = function (...args) {
+          const result = raw.apply(this, args);
+          checkRoute();
+          return result;
+        };
+      });
+    } catch (_) {}
+    window.addEventListener('popstate', checkRoute);
+    window.addEventListener('hashchange', checkRoute);
+    window.addEventListener('pageshow', () => { checkRoute(); if (!document.hidden) { createButton(); if (pendingFullScan) scanFullPage(); applyNeighborPosition(); } });
+    window.addEventListener('focus', () => { checkRoute(); if (!document.hidden) { createButton(); if (pendingFullScan) scanFullPage(); applyNeighborPosition(); } });
+    window.addEventListener('resize', () => { if (!document.hidden) applyNeighborPosition(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { clearTimeout(routeScanTimer); return; }
+      checkRoute();
+      createButton();
+      if (pendingFullScan) scanFullPage();
+      else updateButton();
+      applyNeighborPosition();
+    });
   }
 
   function init() {
     try { localStorage.removeItem('qiqi_senplayer_scheme_template_v1'); } catch (_) {}
     hookNetwork();
     registerMenus();
-    const ready = () => { createButton(); scanDom(); observe(); };
+    const ready = () => {
+      observe();
+      if (document.hidden) { pendingFullScan = true; return; }
+      createButton();
+      scanFullPage();
+    };
     if (document.body) ready();
     else document.addEventListener('DOMContentLoaded', ready, { once: true });
   }

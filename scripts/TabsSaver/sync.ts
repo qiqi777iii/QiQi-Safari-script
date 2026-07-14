@@ -420,7 +420,7 @@ async function saveRestoreUndoCopy(local: Store): Promise<void> {
 async function overwriteStoreWithUndo(target: Store, restoredFrom: string): Promise<RestoreResult> {
   const local = await loadStore()
   await saveRestoreUndoCopy(local)
-  await overwriteStore(target)
+  await overwriteStore(target, { expectedRevision: local._revision })
   const meta: RestoreUndoMeta = {
     createdAt: Date.now(),
     restoredFrom,
@@ -457,7 +457,8 @@ export async function undoLastRestore(): Promise<RestoreResult> {
       }
       const store = JSON.parse(await FileManager.readAsString(RESTORE_UNDO_FILE)) as Store
       if (!isValidStore(store)) return { ok: false, message: "恢复保护副本格式无效" }
-      await overwriteStore(store)
+      const current = await loadStore()
+      await overwriteStore(store, { expectedRevision: current._revision })
       await FileManager.remove(RESTORE_UNDO_FILE)
       Storage.set(RESTORE_UNDO_META_KEY, "")
       return { ok: true, message: "已返回恢复前的本机数据", summary: summarizeStore(store) }
