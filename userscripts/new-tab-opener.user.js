@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.1
+// @version      2.0.2
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -10,6 +10,7 @@
 // @grant        GM.openInTab
 // @grant        GM.getValue
 // @grant        GM.setValue
+// @grant        GM.addValueChangeListener
 // @run-at       document-start
 // ==/UserScript==
 
@@ -32,7 +33,8 @@
 
     let enabled = true;
     const sharedSiteKey = getSharedSiteKey(location.hostname);
-    let toolbar, linkBtn, observer, bodyObserver, toolbarEnsureTimer, neighborResizeObserver, neighborMutationObserver, observedNeighbor;
+    const sharedEnabledKey = SHARED_ENABLED_KEY_PREFIX + sharedSiteKey;
+    let toolbar, linkBtn, bodyObserver, toolbarEnsureTimer, neighborResizeObserver, neighborMutationObserver, observedNeighbor;
     let menuRegistered = false;
     let listenersInstalled = false;
     let historyHooked = false;
@@ -43,14 +45,9 @@
     let moved = false;
     let startX = 0, startY = 0, startLeft = 0, startTop = 0;
     let dragPager = null, startPagerLeft = 0, startPagerTop = 0;
-    let lastOpenedHref = '';
-    let lastOpenedAt = 0;
-    let genericLinkPointerDownX = 0;
-    let genericLinkPointerDownY = 0;
-    let genericLinkPointerDownHref = '';
     let backgroundToastTimer = null;
     let backgroundToastRemoveTimer = null;
-    const GENERIC_LINK_MOVE_TOLERANCE = 12;
+    let valueChangeListenerInstalled = false;
 
     function getVal(key, def) {
         try {
@@ -99,10 +96,9 @@
         }
 
         try {
-            const key = SHARED_ENABLED_KEY_PREFIX + sharedSiteKey;
-            const sharedValue = await GM.getValue(key, null);
+            const sharedValue = await GM.getValue(sharedEnabledKey, null);
             enabled = sharedValue === null ? localValue : Boolean(sharedValue);
-            if (sharedValue === null && GM.setValue) await GM.setValue(key, enabled);
+            if (sharedValue === null && GM.setValue) await GM.setValue(sharedEnabledKey, enabled);
             setVal('newTabEnabled', enabled);
         } catch (_) {
             enabled = localValue;
@@ -113,7 +109,7 @@
         setVal('newTabEnabled', enabled);
         if (typeof GM === 'undefined' || !GM.setValue) return;
         try {
-            const result = GM.setValue(SHARED_ENABLED_KEY_PREFIX + sharedSiteKey, enabled);
+            const result = GM.setValue(sharedEnabledKey, enabled);
             if (result && typeof result.catch === 'function') result.catch(function () {});
         } catch (_) {}
     }
@@ -203,53 +199,25 @@
         return previewLink ? { card, preview, previewLink } : null;
     }
 
-    function isMissAvPreviewLink(a) {
-        return Boolean(getMissAvPreviewContext(a));
-    }
-
-    function scanLinks() {
-        document.querySelectorAll('a[href]').forEach(function (a) {
-            const href = a.getAttribute('href') || '';
-            const isHttp = a.href.slice(0, 4) === 'http';
-            const keepSelf = !isHttp || href[0] === '#' || isPaginationLink(a) || isMissAvPreviewLink(a);
-            a.target = keepSelf || !enabled ? '_self' : '_blank';
-            if (enabled && !keepSelf) a.rel = 'noopener';
+    function installEnabledStateListener() {
+        if (valueChangeListenerInstalled || typeof GM === 'undefined' || !GM.addValueChangeListener) return;
+        valueChangeListenerInstalled = true;
+        GM.addValueChangeListener(sharedEnabledKey, function (_key, _oldValue, newValue) {
+            if (typeof newValue !== 'boolean' || newValue === enabled) return;
+            enabled = newValue;
+            setVal('newTabEnabled', enabled);
+            updateBtn();
         });
     }
 
     function refresh() {
         saveEnabledState();
-        if (enabled) startObserver();
-        else if (observer) {
-            observer.disconnect();
-            observer = null;
-        }
-        scanLinks();
         updateBtn();
-    }
-
-    // 空闲调度：让出首屏渲染，Safari 无 requestIdleCallback 时回退到 setTimeout。
-    function runWhenIdle(fn, timeout) {
-        if (typeof requestIdleCallback === 'function') {
-            requestIdleCallback(fn, { timeout: timeout || 800 });
-        } else {
-            setTimeout(fn, 1);
-        }
     }
 
     function nextFrame(fn) {
         if (typeof requestAnimationFrame === 'function') requestAnimationFrame(fn);
         else setTimeout(fn, 16);
-    }
-
-    var scanScheduled = false;
-    function scheduleScan() {
-        if (!enabled || scanScheduled) return;
-        scanScheduled = true;
-        runWhenIdle(function () {
-            scanScheduled = false;
-            if (enabled) scanLinks();
-        }, 500);
     }
 
     // 在一组延迟时刻分别调度同一回调（兜底节奏：保留全部时机）。
@@ -264,22 +232,8 @@
         if (!wasHealthy || !savedPosition) syncDefaultPosition();
     }
 
-    function scheduleScanBurst() {
-        if (!enabled) return;
-        runAtDelays([0, 80, 220, 600, 1200], scheduleScan);
-    }
-
     function scheduleVisualBurst() {
         runAtDelays([0, 40, 120, 300, 700, 1500, 3000, 6000], ensureToolbarAndSync);
-    }
-
-    function startObserver() {
-        if (observer) return;
-        // 回调防抖 + 空闲执行：高频 DOM 变化时不再每次同步全页 scanLinks。
-        observer = new MutationObserver(function () {
-            if (enabled) scheduleScan();
-        });
-        observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
     }
 
     function findLinkTarget(target) {
@@ -314,6 +268,7 @@
         link.href = href;
         link.target = '_blank';
         link.rel = 'noopener';
+        link.dataset.tbInternalOpen = 'true';
         link.style.position = 'fixed';
         link.style.left = '-9999px';
         link.style.top = '-9999px';
@@ -344,28 +299,6 @@
         openLinkWithAnchor(href);
     }
 
-    function getEventPoint(e) {
-        const p = e.changedTouches?.[0] || e.touches?.[0] || e;
-        return { x: p.clientX || 0, y: p.clientY || 0 };
-    }
-
-    function recordGenericLinkPointerDown(e) {
-        if (!enabled || toolbar?.contains(e.target)) return;
-        const a = findLinkTarget(e.target);
-        if (!a) return;
-        const p = getEventPoint(e);
-        genericLinkPointerDownX = p.x;
-        genericLinkPointerDownY = p.y;
-        genericLinkPointerDownHref = a.href || '';
-    }
-
-    function isGenericLinkScrollGesture(e, a) {
-        const href = a?.href || '';
-        if (!href || genericLinkPointerDownHref !== href) return false;
-        const p = getEventPoint(e);
-        return Math.abs(p.x - genericLinkPointerDownX) > GENERIC_LINK_MOVE_TOLERANCE || Math.abs(p.y - genericLinkPointerDownY) > GENERIC_LINK_MOVE_TOLERANCE;
-    }
-
     function getMissAvHiddenPreview(a) {
         const context = getMissAvPreviewContext(a);
         return context?.preview.classList.contains('hidden') ? context : null;
@@ -375,12 +308,7 @@
         const context = getMissAvHiddenPreview(a);
         if (!context) return false;
         const { preview, previewLink } = context;
-        // 只在最终 click 阶段接管；若在 touchend/pointerup 就显示视频，紧随其后的 click
-        // 会被误判成第二次点击并打开新标签页。
-        if (e.type !== 'click') return true;
-
         e.preventDefault();
-        e.stopImmediatePropagation();
         const src = preview.getAttribute('src') || preview.getAttribute('data-src');
         if (src && !preview.getAttribute('src')) preview.setAttribute('src', src);
         preview.classList.remove('hidden');
@@ -391,43 +319,49 @@
         return true;
     }
 
-    function shouldOpenNewTab(a) {
-        if (!enabled || !a) return false;
-        if (isPaginationLink(a)) return false;
-        const href = a.getAttribute('href') || '';
-        return a.href.slice(0, 4) === 'http' && href[0] !== '#';
+    function isExplicitInteractiveLink(a) {
+        const target = (a.getAttribute('target') || '').trim().toLowerCase();
+        if (target && target !== '_blank') return true;
+        if (a.hasAttribute('download') || a.closest('form')) return true;
+        if (a.hasAttribute('onclick')) return true;
+        return Boolean(a.closest('[role="button"], [aria-haspopup], [data-confirm], [data-method], [data-turbo-method], [data-action]'));
+    }
+
+    function getBackgroundOpenUrl(a) {
+        if (!enabled || !a || a.dataset.tbInternalOpen === 'true') return null;
+        if (isPaginationLink(a) || isExplicitInteractiveLink(a)) return null;
+
+        const rawHref = (a.getAttribute('href') || '').trim();
+        if (!rawHref || rawHref[0] === '#') return null;
+
+        let url;
+        try { url = new URL(rawHref, document.baseURI); } catch (_) { return null; }
+        if (!/^https?:$/i.test(url.protocol)) return null;
+
+        // 登录、退出、结账、支付和确认流程通常依赖当前页状态或站点脚本，保持原行为。
+        if (/(?:^|\/)(?:login|log-in|signin|sign-in|logout|log-out|checkout|payment|pay|confirm)(?:[\/?#]|$)/i.test(url.pathname)) return null;
+
+        const current = new URL(location.href);
+        const sameDocument = url.origin === current.origin && url.pathname === current.pathname && url.search === current.search;
+        if (sameDocument && url.hash) return null;
+        return url.href;
     }
 
     function handleLinkOpen(e) {
+        if (!enabled || e.defaultPrevented || e.isTrusted === false || e.button > 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         if (toolbar?.contains(e.target)) return;
         const a = findLinkTarget(e.target);
-        // MissAV 首次点击封面由本脚本直接启动预览，避免站点事件被过滤器移除时仍落入链接跳转；
-        // 预览已显示后的再次点击继续按后台新标签页规则打开详情。
+        if (!a || a.dataset.tbInternalOpen === 'true') return;
+
+        // MissAV 原生预览事件被过滤器移除时，首次点击只恢复预览；再次点击才按通用规则后台打开。
         if (activateMissAvPreview(e, a)) return;
-        if (!shouldOpenNewTab(a)) return;
 
-        // 通用链接只在 click 阶段处理；pointerup/touchend 过早处理会把滑动列表的抬手误判为点击。
-        // 取消网页原跳转，交给 Scripting 的 GM.openInTab({ active: false }) 明确在后台打开。
-        if (isGenericLinkScrollGesture(e, a)) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            return;
-        }
-        if (e.type !== 'click') return;
+        const href = getBackgroundOpenUrl(a);
+        if (!href) return;
 
-        const now = Date.now();
-        if (a.href === lastOpenedHref && now - lastOpenedAt < 700) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            return;
-        }
-        lastOpenedHref = a.href;
-        lastOpenedAt = now;
-
+        // 只委托最终 click，不扫描或改写网页链接，也不阻断网站自己的冒泡监听器。
         e.preventDefault();
-        e.stopImmediatePropagation();
-        openLinkInBackground(a.href);
-        return;
+        openLinkInBackground(href);
     }
 
     function injectCSS() {
@@ -754,7 +688,7 @@
             // 只调度一次轻量健康检查，不在高频 DOM 变化里等待 idle，避免繁忙页面上按钮补挂被长期推迟。
             scheduleEnsureToolbar(30);
         });
-        // 关注 body/head 等根级重建即可；全站 subtree 变化由链接扫描 observer 处理，避免首屏加载被拖慢。
+        // 只关注 body/head 等根级重建；链接打开已改为单一事件代理，不再扫描页面 DOM。
         bodyObserver.observe(parent, { childList: true });
     }
 
@@ -785,9 +719,9 @@
         window.visualViewport?.addEventListener('resize', stabilizePosition);
         window.visualViewport?.addEventListener('scroll', stabilizePosition);
         hookHistoryForUrlChange();
-        window.addEventListener('pageshow', function () { init(); scheduleVisualBurst(); scheduleScanBurst(); });
-        document.addEventListener('visibilitychange', function () { if (!document.hidden) { init(); scheduleVisualBurst(); scheduleScanBurst(); } });
-        window.addEventListener('focus', function () { init(); scheduleVisualBurst(); scheduleScanBurst(); });
+        window.addEventListener('pageshow', function () { init(); scheduleVisualBurst(); });
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) { init(); scheduleVisualBurst(); } });
+        window.addEventListener('focus', function () { init(); scheduleVisualBurst(); });
     }
 
     function scheduleUrlRefresh() {
@@ -798,7 +732,6 @@
             urlRefreshTimer = null;
             init();
             scheduleVisualBurst();
-            scheduleScanBurst();
         }, 80);
     }
 
@@ -821,10 +754,6 @@
         migrateBackgroundOpenDefault();
         migrateDefaultPosition();
         if (!ensureToolbar()) return;
-        if (enabled) {
-            scheduleScanBurst();
-            startObserver();
-        }
         startBodyGuard();
         installPositionListenersOnce();
         // 扩展菜单「📍 重置链接按钮位置」：清掉拖动记忆，恢复默认。
@@ -839,20 +768,14 @@
     }
 
     function bootstrap() {
-        // 启动只做一次主初始化；耗时的链接扫描仍按 enabled 状态走 idle 调度。
         init();
         nextFrame(scheduleVisualBurst);
-        runWhenIdle(function () { if (enabled) scheduleScanBurst(); }, 800);
     }
 
     async function start() {
         await loadEnabledState();
-
-        document.addEventListener('pointerdown', recordGenericLinkPointerDown, true);
-        document.addEventListener('touchstart', recordGenericLinkPointerDown, { capture: true, passive: true });
-        document.addEventListener('touchend', handleLinkOpen, { capture: true, passive: false });
-        document.addEventListener('pointerup', handleLinkOpen, true);
-        document.addEventListener('click', handleLinkOpen, true);
+        installEnabledStateListener();
+        window.addEventListener('click', handleLinkOpen);
 
         // 初始化：共享状态载入后立即执行，并保留 DOMContentLoaded 兜底，避免 body 被站点稍后创建。
         if (document.body || document.documentElement) bootstrap();
