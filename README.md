@@ -12,6 +12,7 @@
 
 | 脚本 | 版本 | 功能 | 安装 |
 | --- | --- | --- | --- |
+| 封面视频预览 | 1.0.6 | 在手机上首次点按视频封面播放静音预览，再次点按进入详情；切换封面或滑动时停止旧预览。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/cover-video-preview.user.js) |
 | 悬浮翻页 | 2.0.10 | 自动识别上一页和下一页，并提供关闭标签页、刷新及可拖动的悬浮翻页按钮。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js) |
 | 磁力链验车 | 3.5.0-custom.5 | 识别网页中的磁力链接，提供验车和复制功能。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/magnet-link-checker.user.js) |
 | MissAV Plyr 本地样式修复 | 1.0.0 | 为 MissAV 内置 Plyr 3.6.8 官方 CSS，避免 CDN 请求失败破坏播放器布局；网站升级 Plyr 时提示更新脚本。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/missav-plyr-local-style.user.js) |

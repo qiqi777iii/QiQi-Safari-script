@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.4
+// @version      2.0.6
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -31,6 +31,8 @@
     const GROUP_DRAG_EVENT = 'qiqi-floating-toolbar-group-drag';
     const SHARED_URL_CHANGE_EVENT = 'qiqi:urlchange';
     const SHARED_HISTORY_HOOK_KEY = '__qiqiSharedHistoryHookV1__';
+    const COVER_PREVIEW_READY_ATTR = 'data-qiqi-cover-preview-ready';
+    const BACKGROUND_OPEN_REQUEST_EVENT = 'qiqi:background-open-request';
     const GROUP_LEFT_WIDTH = 35;
 
     let enabled = true;
@@ -215,6 +217,25 @@
             url.search === previewUrl.search;
     }
 
+    function shouldBackgroundOpenOnCuratedVideoSite(url) {
+        const site = getSharedSiteKey(location.hostname);
+        if (!['rule34video.com', 'spankbang.com', 'eporner.com', 'xvideos.com'].includes(site)) return null;
+        if (getSharedSiteKey(url.hostname) !== site) return false;
+
+        // 这四站只让具体视频详情页进入后台；分类、标签、作者、频道、搜索、
+        // 排序、筛选、翻页、账户与操作链接全部维持网站原本的当前页行为。
+        if (site === 'rule34video.com') return /^\/video\/\d+(?:\/|$)/i.test(url.pathname);
+        if (site === 'spankbang.com') return /^\/[a-z0-9]+\/video(?:\/|$)/i.test(url.pathname);
+        if (site === 'eporner.com') return /^\/video-[^/]+(?:\/|$)/i.test(url.pathname) || /^\/hd-porn\/[a-z0-9]+(?:\/|$)/i.test(url.pathname);
+        return /^\/video(?:\.[^/]+|\d+)(?:\/|$)/i.test(url.pathname);
+    }
+
+    function shouldBackgroundOpenForSite(a, url) {
+        const curatedVideoResult = shouldBackgroundOpenOnCuratedVideoSite(url);
+        if (curatedVideoResult !== null) return curatedVideoResult;
+        return shouldBackgroundOpenOnMissAv(a, url);
+    }
+
     function installEnabledStateListener() {
         if (valueChangeListenerInstalled || typeof GM === 'undefined' || !GM.addValueChangeListener) return;
         valueChangeListenerInstalled = true;
@@ -358,7 +379,7 @@
         let url;
         try { url = new URL(rawHref, document.baseURI); } catch (_) { return null; }
         if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return null;
-        if (!shouldBackgroundOpenOnMissAv(a, url)) return null;
+        if (!shouldBackgroundOpenForSite(a, url)) return null;
         const marker = `${url.hostname} ${url.pathname} ${url.search} ${a.id || ''} ${typeof a.className === 'string' ? a.className : ''}`;
         if (/(?:^|[\/_.-])(?:login|signin|signout|logout|auth|authorize|oauth|sso|saml|account|checkout|payment|pay|billing|subscribe|purchase|confirm|action|delete|remove|follow|like|vote|favorite|bookmark|cart)(?:[\/_.?#-]|$)/i.test(marker)) return null;
         for (const key of url.searchParams.keys()) if (/^(?:action|method|cmd|command|do|operation)$/i.test(key)) return null;
@@ -367,8 +388,53 @@
         return url.href;
     }
 
+    function isPlainPrimaryClick(e) {
+        return enabled && !e.defaultPrevented && e.isTrusted !== false && e.button === 0 &&
+            !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+    }
+
+    function isCoverPreviewTarget(target, site) {
+        if (!(target instanceof Element) || document.documentElement?.getAttribute(COVER_PREVIEW_READY_ATTR) !== '1') return false;
+        if (target.closest('.__qiqi_mobile_preview_active__')) return true;
+        if (site === 'rule34video.com') return Boolean(target.closest('[data-preview]'));
+        if (site === 'eporner.com') return Boolean(target.closest('.mbimg'));
+        if (site === 'xvideos.com') return Boolean(target.closest('.thumb-block:not(.thumb-ad) .thumb'));
+        if (site === 'spankbang.com') {
+            const link = target.closest('a[href]');
+            return Boolean(link && link.closest('.video-item, .js-video-item, [id^="recommended_video"]') && link.querySelector('img, video, source'));
+        }
+        return false;
+    }
+
+    function handleCuratedVideoLinkOpenEarly(e) {
+        const site = getSharedSiteKey(location.hostname);
+        // 这些站会在卡片或 document 的冒泡阶段追加当前页跳转或广告弹窗，
+        // 所以视频链接要先接管；封面预览脚本存在时，封面点击交给它处理，
+        // 标题点击仍直接后台打开。Rule34Video 保留晚期处理以兼容原生横滑预览。
+        if (!['spankbang.com', 'eporner.com', 'xvideos.com'].includes(site) || !isPlainPrimaryClick(e)) return;
+        if (toolbar?.contains(e.target) || isCoverPreviewTarget(e.target, site)) return;
+        const a = findLinkTarget(e.target);
+        if (!a || a.dataset.tbInternalOpen === 'true') return;
+        const href = getBackgroundOpenUrl(a);
+        if (!href) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        openLinkInBackground(href);
+    }
+
+    function handleBackgroundOpenRequest(event) {
+        if (!enabled || event.detail?.source !== 'cover-video-preview') return;
+        if (navigator.userActivation && !navigator.userActivation.isActive) return;
+        let url;
+        try { url = new URL(String(event.detail.href || ''), document.baseURI); } catch (_) { return; }
+        if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return;
+        if (shouldBackgroundOpenOnCuratedVideoSite(url) !== true) return;
+        event.preventDefault();
+        openLinkInBackground(url.href);
+    }
+
     function handleLinkOpen(e) {
-        if (!enabled || e.defaultPrevented || e.isTrusted === false || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (!isPlainPrimaryClick(e)) return;
         if (toolbar?.contains(e.target)) return;
         const a = findLinkTarget(e.target);
         if (!a || a.dataset.tbInternalOpen === 'true') return;
@@ -806,6 +872,8 @@
     async function start() {
         await loadEnabledState();
         installEnabledStateListener();
+        window.addEventListener(BACKGROUND_OPEN_REQUEST_EVENT, handleBackgroundOpenRequest);
+        window.addEventListener('click', handleCuratedVideoLinkOpenEarly, true);
         window.addEventListener('click', handleLinkOpen);
 
         // 初始化：共享状态载入后立即执行，并保留 DOMContentLoaded 兜底，避免 body 被站点稍后创建。
