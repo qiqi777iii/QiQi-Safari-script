@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         封面视频预览
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.9
-// @description  在手机上首次点按视频封面播放静音预览，再次点按进入详情；长按保留 Safari 原生行为。
+// @version      1.0.10
+// @description  在手机上首次点按视频封面播放静音预览，再次点按进入详情；滑动不误触，长按保留 Safari 原生行为。
 // @match        *://rule34video.com/*
 // @match        *://*.rule34video.com/*
 // @match        *://spankbang.com/*
@@ -31,6 +31,8 @@
     const IS_EPORNER = /(^|\.)eporner\.com$/i.test(location.hostname);
     const BLOCK_NATIVE_SITE_PREVIEW = IS_SPANKBANG || IS_EPORNER;
     const LONG_PRESS_MS = 600;
+    const SWIPE_CANCEL_DISTANCE = 12;
+    const SWIPE_CLICK_BLOCK_MS = 650;
 
     let active = null;
     let activeUrl = null;
@@ -42,6 +44,7 @@
     let previewScrollY = null;
     let nativePreviewBlockUntil = 0;
     let nativePreviewBlockUrl = null;
+    let swipeClickBlock = null;
 
     function addStyle() {
         if (document.getElementById('__qiqi_mobile_preview_style__')) return;
@@ -405,6 +408,18 @@
         if (!isCoverTarget(card, event.target)) return;
 
         const currentUrl = cardUrl(card);
+        if (swipeClickBlock) {
+            if (Date.now() >= swipeClickBlock.until) {
+                swipeClickBlock = null;
+            } else if (currentUrl && currentUrl === swipeClickBlock.url) {
+                // Safari 偶尔会在滑动结束后补发 click，只吞掉同一封面的这一次误点击。
+                swipeClickBlock = null;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                return;
+            }
+        }
+
         const nativeVideo = card.querySelector('video.preview[data-src], video.preview[src]');
         const nativePreviewIsOpen = Boolean(nativeVideo && (
             !nativeVideo.classList.contains('hidden') || !nativeVideo.paused
@@ -465,6 +480,21 @@
         if (active || document.querySelector('video.preview:not(.hidden)')) stopActive();
     }
 
+    function blockSwipeClick(origin) {
+        if (!origin?.cover || !origin.url) return;
+        swipeClickBlock = {
+            url: origin.url,
+            until: Date.now() + SWIPE_CLICK_BLOCK_MS,
+        };
+    }
+
+    function cancelTouchForSwipe() {
+        if (!touchOrigin) return;
+        touchOrigin.moved = true;
+        blockSwipeClick(touchOrigin);
+        cancelPreviewForGesture();
+    }
+
     function blockConflictingNativePreview(event) {
         if (!BLOCK_NATIVE_SITE_PREVIEW) return;
         const fromTouchPointer = event.pointerType === 'touch';
@@ -500,6 +530,8 @@
             url: cardUrl(card),
             cover,
             startedAt: Date.now(),
+            scrollY: window.scrollY,
+            moved: false,
         };
         if (BLOCK_NATIVE_SITE_PREVIEW && cover) {
             nativePreviewBlockUrl = cardUrl(card);
@@ -512,9 +544,10 @@
     document.addEventListener('touchmove', function (event) {
         if (!touchOrigin || event.touches.length !== 1) return;
         const touch = event.touches[0];
-        if (Math.hypot(touch.clientX - touchOrigin.x, touch.clientY - touchOrigin.y) < 24) return;
-        touchOrigin = null;
-        cancelPreviewForGesture();
+        const distance = Math.hypot(touch.clientX - touchOrigin.x, touch.clientY - touchOrigin.y);
+        const pageMoved = Math.abs(window.scrollY - touchOrigin.scrollY) >= 4;
+        if (distance < SWIPE_CANCEL_DISTANCE && !pageMoved) return;
+        cancelTouchForSwipe();
     }, { capture: true, passive: true });
 
     window.addEventListener('touchend', function (event) {
@@ -532,7 +565,13 @@
         }
         const origin = touchOrigin;
         touchOrigin = null;
+        if (origin?.moved || (origin?.cover && Math.abs(window.scrollY - origin.scrollY) >= 4)) {
+            blockSwipeClick(origin);
+            return;
+        }
         if (!origin?.card || !origin.cover || !eventIsCover) return;
+        const eventUrl = cardUrl(eventCard || origin.card);
+        if (eventUrl && eventUrl === origin.url) swipeClickBlock = null;
         if (Date.now() - origin.startedAt >= LONG_PRESS_MS) {
             // 长按结束后抑制可能补发的 click，保留 Safari 原生链接菜单。
             suppressClickUntil = Math.max(suppressClickUntil, Date.now() + 800);
@@ -561,10 +600,16 @@
     }, true);
 
     document.addEventListener('touchend', function () { touchOrigin = null; }, { capture: true, passive: true });
-    document.addEventListener('touchcancel', function () { touchOrigin = null; }, { capture: true, passive: true });
+    document.addEventListener('touchcancel', function () {
+        cancelTouchForSwipe();
+        touchOrigin = null;
+    }, { capture: true, passive: true });
     window.addEventListener('scroll', function (event) {
         // 只响应页面级滚动；忽略元素内部滚动，避免误取消。
         if (event.target !== document && event.target !== document.documentElement && event.target !== window) return;
+        if (touchOrigin?.cover && Math.abs(window.scrollY - touchOrigin.scrollY) >= 4) {
+            cancelTouchForSwipe();
+        }
         // 预览刚开始时，地址栏收缩/布局位移会触发 scroll，短暂宽限。
         if (Date.now() - previewStartedAt < 400) {
             previewScrollY = window.scrollY;
