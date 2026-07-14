@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0
+// @version      2.1
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
 // @match        *://*/*
 // @grant        GM.registerMenuCommand
 // @grant        GM.openInTab
+// @grant        GM.getValue
+// @grant        GM.setValue
 // @run-at       document-start
 // ==/UserScript==
 
@@ -15,6 +17,7 @@
     'use strict';
 
     const KEY = '__tb_';
+    const SHARED_ENABLED_KEY_PREFIX = 'newTabEnabledBySite:';
     const BTN_SIZE = 35;
     const BOTTOM_GAP = 40;
     const LINK_PAGER_GAP = 0;
@@ -27,7 +30,8 @@
     const GROUP_DRAG_EVENT = 'qiqi-floating-toolbar-group-drag';
     const GROUP_LEFT_WIDTH = 35;
 
-    let enabled = getVal('newTabEnabled', true);
+    let enabled = true;
+    const sharedSiteKey = getSharedSiteKey(location.hostname);
     let toolbar, linkBtn, observer, bodyObserver, toolbarEnsureTimer, neighborResizeObserver, neighborMutationObserver, observedNeighbor;
     let menuRegistered = false;
     let listenersInstalled = false;
@@ -65,6 +69,53 @@
 
     function removeVal(key) {
         try { localStorage.removeItem(KEY + key); } catch (_) {}
+    }
+
+    function getSharedSiteKey(hostname) {
+        const host = String(hostname || '').toLowerCase().replace(/^\.+|\.+$/g, '');
+        if (!host || host === 'localhost' || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(':')) return host;
+
+        const parts = host.split('.').filter(Boolean);
+        if (parts.length <= 2) return host;
+
+        const compoundSuffixes = new Set([
+            'com.cn', 'net.cn', 'org.cn', 'gov.cn', 'edu.cn',
+            'co.uk', 'org.uk', 'me.uk', 'ac.uk',
+            'com.au', 'net.au', 'org.au', 'edu.au',
+            'co.jp', 'ne.jp', 'or.jp', 'ac.jp',
+            'co.kr', 'or.kr', 'ne.kr',
+            'co.nz', 'org.nz', 'net.nz',
+            'com.sg', 'com.hk', 'com.tw', 'com.br', 'com.mx', 'co.in'
+        ]);
+        const suffix = parts.slice(-2).join('.');
+        return parts.slice(compoundSuffixes.has(suffix) ? -3 : -2).join('.');
+    }
+
+    async function loadEnabledState() {
+        const localValue = getVal('newTabEnabled', true);
+        if (typeof GM === 'undefined' || !GM.getValue) {
+            enabled = localValue;
+            return;
+        }
+
+        try {
+            const key = SHARED_ENABLED_KEY_PREFIX + sharedSiteKey;
+            const sharedValue = await GM.getValue(key, null);
+            enabled = sharedValue === null ? localValue : Boolean(sharedValue);
+            if (sharedValue === null && GM.setValue) await GM.setValue(key, enabled);
+            setVal('newTabEnabled', enabled);
+        } catch (_) {
+            enabled = localValue;
+        }
+    }
+
+    function saveEnabledState() {
+        setVal('newTabEnabled', enabled);
+        if (typeof GM === 'undefined' || !GM.setValue) return;
+        try {
+            const result = GM.setValue(SHARED_ENABLED_KEY_PREFIX + sharedSiteKey, enabled);
+            if (result && typeof result.catch === 'function') result.catch(function () {});
+        } catch (_) {}
     }
 
     function isolateFloatingUi(root) {
@@ -167,7 +218,7 @@
     }
 
     function refresh() {
-        setVal('newTabEnabled', enabled);
+        saveEnabledState();
         if (enabled) startObserver();
         else if (observer) {
             observer.disconnect();
@@ -545,8 +596,7 @@
 
     function migrateBackgroundOpenDefault() {
         if (getVal('backgroundOpenDefaultVersion', '') === '1.1.0') return;
-        enabled = true;
-        setVal('newTabEnabled', true);
+        // 默认值已由共享状态初始化；迁移标记不能覆盖同一主域名其他子域保存的关闭状态。
         setVal('backgroundOpenDefaultVersion', '1.1.0');
     }
 
@@ -795,16 +845,22 @@
         runWhenIdle(function () { if (enabled) scheduleScanBurst(); }, 800);
     }
 
-    document.addEventListener('pointerdown', recordGenericLinkPointerDown, true);
-    document.addEventListener('touchstart', recordGenericLinkPointerDown, { capture: true, passive: true });
-    document.addEventListener('touchend', handleLinkOpen, { capture: true, passive: false });
-    document.addEventListener('pointerup', handleLinkOpen, true);
-    document.addEventListener('click', handleLinkOpen, true);
+    async function start() {
+        await loadEnabledState();
 
-    // 初始化：立即执行一次，并保留 idle / timeout / DOM 变化兜底，避免 iOS Safari 偶发不触发 idle 或 body 被站点重建导致按钮不显示。
-    if (document.body || document.documentElement) bootstrap();
-    else {
-        bootstrap();
-        document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+        document.addEventListener('pointerdown', recordGenericLinkPointerDown, true);
+        document.addEventListener('touchstart', recordGenericLinkPointerDown, { capture: true, passive: true });
+        document.addEventListener('touchend', handleLinkOpen, { capture: true, passive: false });
+        document.addEventListener('pointerup', handleLinkOpen, true);
+        document.addEventListener('click', handleLinkOpen, true);
+
+        // 初始化：共享状态载入后立即执行，并保留 DOMContentLoaded 兜底，避免 body 被站点稍后创建。
+        if (document.body || document.documentElement) bootstrap();
+        else {
+            bootstrap();
+            document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+        }
     }
+
+    void start();
 })();
