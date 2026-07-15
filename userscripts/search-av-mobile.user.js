@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         番号快速搜索
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      0.24.5.9
+// @version      1.0.0
 // @description  识别并标记网页中的番号，提供常用网站快捷搜索。
 // @author       iqxin
 // @modifiedBy   QiQi

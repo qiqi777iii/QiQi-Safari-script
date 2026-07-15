@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Senplayer播放
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version 0.1.32
+// @version 1.0.0
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @description 捕获当前网页视频地址，可一键复制地址或通过 SenPlayer 播放。
