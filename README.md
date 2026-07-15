@@ -16,7 +16,7 @@
 | 悬浮翻页 | 2.0.14 | 自动识别上一页和下一页，并提供关闭标签页、刷新及可拖动的悬浮翻页按钮。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js) |
 | 磁力链验车 | 3.5.0-custom.5 | 识别网页中的磁力链接，提供验车和复制功能。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/magnet-link-checker.user.js) |
 | MissAV Plyr 本地样式修复 | 1.0.0 | 为 MissAV 内置 Plyr 3.6.8 官方 CSS，避免 CDN 请求失败破坏播放器布局；网站升级 Plyr 时提示更新脚本。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/missav-plyr-local-style.user.js) |
-| 新标签页打开 | 2.0.12 | 通过网页悬浮开关控制链接是否在 Safari 后台新标签页中打开。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js) |
+| 新标签页打开 | 2.0.13 | 通过网页悬浮开关控制链接是否在 Safari 后台新标签页中打开。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js) |
 | 番号快速搜索 | 0.24.5.9 | 识别并标记网页中的番号，提供常用网站快捷搜索。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/search-av-mobile.user.js) |
 | Senplayer播放 | 0.1.32 | 捕获当前网页视频地址，可一键复制地址或通过 SenPlayer 播放。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js) |
 | 播放当前页视频 | 1.0.47 | 检测并控制当前网页视频，支持播放、暂停、快进、后退和全屏。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js) |

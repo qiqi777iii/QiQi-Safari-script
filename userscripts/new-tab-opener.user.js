@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.12
+// @version      2.0.13
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -34,6 +34,11 @@
     const COVER_PREVIEW_READY_ATTR = 'data-qiqi-cover-preview-ready';
     const BACKGROUND_OPEN_REQUEST_EVENT = 'qiqi:background-open-request';
     const GROUP_LEFT_WIDTH = 35;
+    const SENSITIVE_ACTION_NAMES = new Set([
+        'login', 'signin', 'signout', 'logout', 'auth', 'authorize', 'oauth', 'sso', 'saml',
+        'account', 'checkout', 'payment', 'pay', 'billing', 'subscribe', 'purchase', 'confirm',
+        'action', 'delete', 'remove', 'follow', 'like', 'vote', 'favorite', 'bookmark', 'cart'
+    ]);
 
     let enabled = true;
     const sharedSiteKey = getSharedSiteKey(location.hostname);
@@ -50,6 +55,7 @@
     let dragPager = null, startPagerLeft = 0, startPagerTop = 0;
     let backgroundToastTimer = null;
     let backgroundToastRemoveTimer = null;
+    let visualBurstTimers = [];
     let valueChangeListenerInstalled = false;
 
     function getVal(key, def) {
@@ -219,15 +225,14 @@
 
     function shouldBackgroundOpenOnCuratedVideoSite(url) {
         const site = getSharedSiteKey(location.hostname);
-        if (!['rule34video.com', 'spankbang.com', 'eporner.com', 'xvideos.com'].includes(site)) return null;
+        if (!['rule34video.com', 'spankbang.com', 'eporner.com'].includes(site)) return null;
         if (getSharedSiteKey(url.hostname) !== site) return false;
 
-        // 这四站只让具体视频详情页进入后台；分类、标签、作者、频道、搜索、
+        // 这三站只让具体视频详情页进入后台；分类、标签、作者、频道、搜索、
         // 排序、筛选、翻页、账户与操作链接全部维持网站原本的当前页行为。
         if (site === 'rule34video.com') return /^\/video\/\d+(?:\/|$)/i.test(url.pathname);
         if (site === 'spankbang.com') return /^\/[a-z0-9]+\/video(?:\/|$)/i.test(url.pathname);
-        if (site === 'eporner.com') return /^\/video-[^/]+(?:\/|$)/i.test(url.pathname) || /^\/hd-porn\/[a-z0-9]+(?:\/|$)/i.test(url.pathname);
-        return /^\/video(?:\.[^/]+|\d+)(?:\/|$)/i.test(url.pathname);
+        return /^\/video-[^/]+(?:\/|$)/i.test(url.pathname) || /^\/hd-porn\/[a-z0-9]+(?:\/|$)/i.test(url.pathname);
     }
 
     function shouldBackgroundOpenForSite(a, url) {
@@ -257,11 +262,6 @@
         else setTimeout(fn, 16);
     }
 
-    // 在一组延迟时刻分别调度同一回调（兜底节奏：保留全部时机）。
-    function runAtDelays(delays, fn) {
-        delays.forEach(function (ms) { setTimeout(fn, ms); });
-    }
-
     // 健康检查 + 默认队形同步（多处兜底共用）。
     function ensureToolbarAndSync() {
         const wasHealthy = isToolbarHealthy();
@@ -270,7 +270,10 @@
     }
 
     function scheduleVisualBurst() {
-        runAtDelays([0, 40, 120, 300, 700, 1500, 3000, 6000], ensureToolbarAndSync);
+        visualBurstTimers.forEach(clearTimeout);
+        visualBurstTimers = [0, 40, 120, 300, 700, 1500, 3000, 6000].map(function (ms) {
+            return setTimeout(ensureToolbarAndSync, ms);
+        });
     }
 
     function findLinkTarget(target) {
@@ -286,26 +289,20 @@
             toast.textContent = '后台打开';
             toast.setAttribute('role', 'status');
             toast.setAttribute('aria-live', 'polite');
-            // 顶部居中显示：iPhone Safari 底部工具栏与悬浮翻页栏会遮挡底部 toast，
-            // 改放到顶部安全区下方，用固定 translateX(-50%) 居中。
-            toast.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top, 0px) + 12px);z-index:2147483647;max-width:calc(100vw - 32px);box-sizing:border-box;padding:9px 16px;border-radius:12px;background:rgba(28,28,30,.92);color:#fff;font:600 14px/20px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;letter-spacing:.01em;text-align:center;white-space:nowrap;pointer-events:none;-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);box-shadow:0 2px 12px rgba(0,0,0,.24);opacity:0;transform:translateX(-50%) translateY(-6px);transition:opacity .16s ease,transform .16s ease;';
+            toast.style.cssText = 'position:fixed;left:50%;bottom:96px;z-index:2147483647;max-width:calc(100vw - 32px);box-sizing:border-box;padding:8px 14px;border-radius:10px;background:rgba(28,28,30,.88);color:#fff;font:600 14px/20px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;letter-spacing:.01em;text-align:center;white-space:nowrap;pointer-events:none;-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);box-shadow:0 2px 10px rgba(0,0,0,.16);opacity:0;transform:translate(-50%,6px);transition:opacity .12s ease,transform .12s ease;';
             (document.body || document.documentElement).appendChild(toast);
         }
         clearTimeout(backgroundToastTimer);
         clearTimeout(backgroundToastRemoveTimer);
-        // 强制 reflow 后再触发过渡，避免 WebKit 新插入元素同帧改 opacity 导致的首帧不渲染。
+        // 保留 2.0.11 的底部样式与时长，只确保 WebKit 先提交 opacity:0 的初始帧。
         void toast.offsetWidth;
-        const show = function () {
-            toast.style.opacity = '1';
-            toast.style.transform = 'translateX(-50%) translateY(0)';
-        };
-        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(show);
-        else show();
+        toast.style.opacity = '1';
+        toast.style.transform = 'translate(-50%,0)';
         backgroundToastTimer = setTimeout(function () {
             toast.style.opacity = '0';
-            toast.style.transform = 'translateX(-50%) translateY(-6px)';
-            backgroundToastRemoveTimer = setTimeout(function () { toast.remove(); }, 180);
-        }, 1600);
+            toast.style.transform = 'translate(-50%,6px)';
+            backgroundToastRemoveTimer = setTimeout(function () { toast.remove(); }, 140);
+        }, 1000);
     }
 
     function openLinkWithAnchor(href, shouldShowToast) {
@@ -381,6 +378,33 @@
         return Boolean(a.closest('form, dialog, [role="dialog"], [role="button"], [aria-haspopup], [data-confirm], [data-method], [data-turbo-method], [data-action], [contenteditable="true"]'));
     }
 
+    function normalizeActionName(value) {
+        let decoded = String(value || '');
+        try { decoded = decodeURIComponent(decoded); } catch (_) {}
+        return decoded.toLowerCase()
+            .replace(/\.(?:html?|php|aspx?)$/i, '')
+            .replace(/[-_]/g, '');
+    }
+
+    function isSensitiveActionLink(a, url) {
+        const pathHasAction = url.pathname.split('/').filter(Boolean).some(function (segment) {
+            return SENSITIVE_ACTION_NAMES.has(normalizeActionName(segment));
+        });
+        if (pathHasAction) return true;
+
+        const elementTokens = [a.id || '', typeof a.className === 'string' ? a.className : '']
+            .join(' ')
+            .toLowerCase()
+            .split(/[^a-z0-9]+/)
+            .filter(Boolean);
+        if (elementTokens.some(function (token) { return SENSITIVE_ACTION_NAMES.has(token); })) return true;
+
+        for (const key of url.searchParams.keys()) {
+            if (/^(?:action|method|cmd|command|do|operation)$/i.test(key)) return true;
+        }
+        return false;
+    }
+
     function getBackgroundOpenUrl(a) {
         if (!enabled || !a || a.dataset.tbInternalOpen === 'true' || isPaginationLink(a) || isExplicitInteractiveLink(a)) return null;
         const rawHref = (a.getAttribute('href') || '').trim();
@@ -389,9 +413,7 @@
         try { url = new URL(rawHref, document.baseURI); } catch (_) { return null; }
         if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return null;
         if (!shouldBackgroundOpenForSite(a, url)) return null;
-        const marker = `${url.hostname} ${url.pathname} ${url.search} ${a.id || ''} ${typeof a.className === 'string' ? a.className : ''}`;
-        if (/(?:^|[\/_.-])(?:login|signin|signout|logout|auth|authorize|oauth|sso|saml|account|checkout|payment|pay|billing|subscribe|purchase|confirm|action|delete|remove|follow|like|vote|favorite|bookmark|cart)(?:[\/_.?#-]|$)/i.test(marker)) return null;
-        for (const key of url.searchParams.keys()) if (/^(?:action|method|cmd|command|do|operation)$/i.test(key)) return null;
+        if (isSensitiveActionLink(a, url)) return null;
         const current = new URL(location.href);
         if (url.origin === current.origin && url.pathname === current.pathname && url.search === current.search && url.hash) return null;
         return url.href;
@@ -407,7 +429,6 @@
         if (target.closest('.__qiqi_mobile_preview_active__')) return true;
         if (site === 'rule34video.com') return Boolean(target.closest('[data-preview]'));
         if (site === 'eporner.com') return Boolean(target.closest('.mbimg'));
-        if (site === 'xvideos.com') return Boolean(target.closest('.thumb-block:not(.thumb-ad) .thumb'));
         if (site === 'spankbang.com') {
             const link = target.closest('a[href]');
             return Boolean(link && link.closest('.video-item, .js-video-item, [id^="recommended_video"]') && link.querySelector('img, video, source'));
@@ -419,13 +440,8 @@
         const site = getSharedSiteKey(location.hostname);
         // 这些站会在卡片或 document 的冒泡阶段追加当前页跳转或广告弹窗，
         // 所以视频链接要先接管；封面预览脚本存在时，封面点击交给它处理，
-        // 标题点击仍直接后台打开。Rule34Video 保留晚期处理以兼容原生横滑预览。
-        if (!['spankbang.com', 'eporner.com', 'xvideos.com'].includes(site) || !isPlainPrimaryClick(e)) return;
-        // XVideos 与封面预览脚本分属 content / page 两个 JS world，stopImmediatePropagation 不跨 world；
-        // 封面脚本就绪时它已接管全部 XVideos 链接并会为标题/二次封面派发桥接事件，
-        // 本脚本此时不再早期接管，否则会与桥接一起把同一视频后台打开两次。
-        // 只装本脚本（封面脚本未就绪）时，仍由下方逻辑直接接管封面与标题。
-        if (site === 'xvideos.com' && document.documentElement?.getAttribute(COVER_PREVIEW_READY_ATTR) === '1') return;
+        // 标题点击仍直接后台打开。
+        if (!['rule34video.com', 'spankbang.com', 'eporner.com'].includes(site) || !isPlainPrimaryClick(e)) return;
         if (toolbar?.contains(e.target) || isCoverPreviewTarget(e.target, site)) return;
         const a = findLinkTarget(e.target);
         if (!a || a.dataset.tbInternalOpen === 'true') return;
@@ -438,6 +454,7 @@
 
     function handleBackgroundOpenRequest(event) {
         if (!enabled || event.detail?.source !== 'cover-video-preview') return;
+        if (navigator.userActivation && !navigator.userActivation.isActive) return;
         let url;
         try { url = new URL(String(event.detail.href || ''), document.baseURI); } catch (_) { return; }
         if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return;
@@ -485,13 +502,13 @@
     }
 
     // SVG 链接图标：开关状态只通过 currentColor 区分，保持组合栏背景一致。
-    function linkSVG(on) {
+    function linkSVG() {
         return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" fill="none"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" fill="none"></path></svg>';
     }
 
     function updateBtn() {
         if (!linkBtn) return;
-        linkBtn.innerHTML = linkSVG(enabled);
+        linkBtn.innerHTML = linkSVG();
         linkBtn.dataset.enabled = enabled ? 'true' : 'false';
         linkBtn.style.opacity = '1';
         linkBtn.title = enabled ? '后台新标签页打开：开' : '后台新标签页打开：关';
@@ -543,16 +560,6 @@
         toolbar.style.right = 'auto';
         toolbar.style.bottom = 'auto';
         return true;
-    }
-
-    function getVisualViewportRect() {
-        const vv = window.visualViewport;
-        return {
-            left: Math.floor(vv?.offsetLeft || 0),
-            top: Math.floor(vv?.offsetTop || 0),
-            width: Math.floor(vv?.width || document.documentElement.clientWidth || innerWidth || 1),
-            height: Math.floor(vv?.height || document.documentElement.clientHeight || innerHeight || 1),
-        };
     }
 
     // 悬浮翻页栏 id：链接按钮直接贴在它左侧，形成一条视觉组合栏。
@@ -659,7 +666,7 @@
 
         linkBtn = document.createElement('div');
         linkBtn.id = '__tb_btn__';
-        linkBtn.innerHTML = linkSVG(enabled);
+        linkBtn.innerHTML = linkSVG();
         toolbar.appendChild(linkBtn);
         isolateFloatingUi(toolbar);
         parent.appendChild(toolbar);
@@ -823,9 +830,9 @@
         window.visualViewport?.addEventListener('resize', stabilizePosition);
         window.visualViewport?.addEventListener('scroll', stabilizePosition);
         hookHistoryForUrlChange();
-        window.addEventListener('pageshow', function () { init(); scheduleVisualBurst(); });
-        document.addEventListener('visibilitychange', function () { if (!document.hidden) { init(); scheduleVisualBurst(); } });
-        window.addEventListener('focus', function () { init(); scheduleVisualBurst(); });
+        window.addEventListener('pageshow', init);
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) init(); });
+        window.addEventListener('focus', init);
     }
 
     function scheduleUrlRefresh() {
@@ -835,7 +842,6 @@
         urlRefreshTimer = setTimeout(function () {
             urlRefreshTimer = null;
             init();
-            scheduleVisualBurst();
         }, 80);
     }
 
@@ -881,7 +887,6 @@
 
     function bootstrap() {
         init();
-        nextFrame(scheduleVisualBurst);
     }
 
     async function start() {
