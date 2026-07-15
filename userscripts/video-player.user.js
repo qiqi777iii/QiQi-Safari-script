@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.0
+// @version      1.0.1
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @description  检测并控制当前网页视频，支持播放、暂停、快进、后退和全屏。
@@ -18,7 +18,7 @@
   const POS_KEY = "videoplay-fab-pos";
   const Z = "2147483646";
   const BTN_SIZE = 35;
-  const BOTTOM_GAP = 0;
+  const BOTTOM_GAP = 28;
   const STACK_GAP = 12;
   const INNER_GAP = 8;
   const TOOLBAR_W = BTN_SIZE * 7 + INNER_GAP * 6;
@@ -26,7 +26,7 @@
   const PAGER_HEIGHT = 35;
   const DEFAULT_RIGHT = PAGER_RIGHT_GAP;
   const DEFAULT_BOTTOM = BOTTOM_GAP + PAGER_HEIGHT + STACK_GAP;
-  const CURRENT_LAYOUT_VERSION = '1.0.43';
+  const CURRENT_LAYOUT_VERSION = '1.0.44';
   const MIN_MAIN_VIDEO_W = 180;
   const MIN_MAIN_VIDEO_H = 120;
   const MIN_MAIN_VIDEO_AREA_RATIO = 0.12;

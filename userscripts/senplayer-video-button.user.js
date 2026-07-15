@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Senplayer播放
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version 1.0.0
+// @version 1.0.1
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @description 捕获当前网页视频地址，可一键复制地址或通过 SenPlayer 播放。
@@ -24,12 +24,12 @@
   const SCRIPT = 'SenPlayer';
   const WRAP_ID = '__qiqi_senplayer_button__';
   const PANEL_ID = '__qiqi_senplayer_panel__';
-  const POS_KEY = 'qiqi_senplayer_pos_v6';
+  const POS_KEY = 'qiqi_senplayer_pos_v7';
   const SENPLAYER_SCHEME = 'senplayer://x-callback-url/play?url={url}';
   const BTN_SIZE = 35;
   const SIDE_GAP = 6;
   const DEFAULT_RIGHT = 14;
-  const DEFAULT_BOTTOM = 136;
+  const DEFAULT_BOTTOM = 75;
   const DETECTED = new Map();
   const VIDEO_EXT_RE = /(?:\.(m3u8|mp4|mov|m4v|webm|mkv)(?:[?#]|$)|\/hls[0-9a-z]*\/|media=hls|type=video)/i;
   const VIDEO_HINT_RE = /(m3u8|mp4|video|playlist|master|stream|media|hls)/i;
