@@ -1,39 +1,40 @@
 {
   "entry": "index.tsx",
+  "localizedDescriptions": {
+    "ja": "",
+    "fr": "",
+    "en": "",
+    "ru": "",
+    "de": "",
+    "es": "",
+    "zh": "",
+    "pt": "",
+    "it": ""
+  },
+  "localizedNames": {
+    "pt": "",
+    "ja": "",
+    "en": "",
+    "de": "",
+    "zh": "",
+    "it": "",
+    "fr": "",
+    "ru": "",
+    "es": ""
+  },
+  "description": null,
+  "intentInputTypes": [],
+  "author": null,
   "remoteResource": {
     "url": "https://github.com/qiqi777iii/Scripts/tree/main/scripts/CodexUsage",
     "autoUpdateInterval": 600
   },
-  "contributors": [],
-  "name": "Codex额度",
-  "author": null,
-  "localizedNames": {
-    "es": "",
-    "zh": "",
-    "ja": "",
-    "ru": "",
-    "pt": "",
-    "fr": "",
-    "en": "",
-    "it": "",
-    "de": ""
-  },
-  "localizedDescriptions": {
-    "zh": "",
-    "it": "",
-    "ru": "",
-    "en": "",
-    "fr": "",
-    "pt": "",
-    "es": "",
-    "ja": "",
-    "de": ""
-  },
-  "description": null,
+  "permissions": null,
+  "name": "Codex 额度",
   "iconImage": null,
-  "intentInputTypes": [],
-  "version": "1.0.1",
-  "runInApp": false,
+  "contributors": [],
   "icon": "bolt.fill",
-  "color": "rgba(0, 198, 165,1)"
+  "version": "1.0.1",
+  "color": "rgba(0, 198, 165,1)",
+  "runInApp": false
 }

@@ -1,39 +1,40 @@
 {
+  "color": "rgba(217, 119, 87,1)",
+  "version": "1.0.1",
   "iconImage": null,
-  "localizedDescriptions": {
-    "fr": "",
-    "en": "",
-    "ru": "",
-    "zh": "",
-    "ja": "",
-    "de": "",
-    "it": "",
-    "es": "",
-    "pt": ""
-  },
-  "intentInputTypes": [],
-  "contributors": [],
-  "description": null,
-  "remoteResource": {
-    "url": "https://github.com/qiqi777iii/Scripts/tree/main/scripts/ClaudeUsage",
-    "autoUpdateInterval": 600
-  },
   "localizedNames": {
     "it": "",
-    "ru": "",
     "de": "",
     "es": "",
+    "pt": "",
+    "ru": "",
     "en": "",
-    "ja": "",
     "fr": "",
-    "zh": "",
-    "pt": ""
+    "ja": "",
+    "zh": ""
   },
-  "color": "rgba(217, 119, 87,1)",
+  "description": null,
+  "icon": "sparkles",
+  "entry": "index.tsx",
+  "remoteResource": {
+    "autoUpdateInterval": 600,
+    "url": "https://github.com/qiqi777iii/Scripts/tree/main/scripts/ClaudeUsage"
+  },
+  "permissions": null,
+  "localizedDescriptions": {
+    "pt": "",
+    "de": "",
+    "it": "",
+    "ru": "",
+    "ja": "",
+    "zh": "",
+    "en": "",
+    "fr": "",
+    "es": ""
+  },
   "runInApp": false,
   "author": null,
-  "name": "Claude额度",
-  "entry": "index.tsx",
-  "icon": "sparkles",
-  "version": "1.0.1"
+  "intentInputTypes": [],
+  "contributors": [],
+  "name": "Claude 额度"
 }

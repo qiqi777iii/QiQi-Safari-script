@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.11
+// @version      2.0.12
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -286,18 +286,26 @@
             toast.textContent = '后台打开';
             toast.setAttribute('role', 'status');
             toast.setAttribute('aria-live', 'polite');
-            toast.style.cssText = 'position:fixed;left:50%;bottom:96px;z-index:2147483647;max-width:calc(100vw - 32px);box-sizing:border-box;padding:8px 14px;border-radius:10px;background:rgba(28,28,30,.88);color:#fff;font:600 14px/20px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;letter-spacing:.01em;text-align:center;white-space:nowrap;pointer-events:none;-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);box-shadow:0 2px 10px rgba(0,0,0,.16);opacity:0;transform:translate(-50%,6px);transition:opacity .12s ease,transform .12s ease;';
+            // 顶部居中显示：iPhone Safari 底部工具栏与悬浮翻页栏会遮挡底部 toast，
+            // 改放到顶部安全区下方，用固定 translateX(-50%) 居中。
+            toast.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top, 0px) + 12px);z-index:2147483647;max-width:calc(100vw - 32px);box-sizing:border-box;padding:9px 16px;border-radius:12px;background:rgba(28,28,30,.92);color:#fff;font:600 14px/20px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;letter-spacing:.01em;text-align:center;white-space:nowrap;pointer-events:none;-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);box-shadow:0 2px 12px rgba(0,0,0,.24);opacity:0;transform:translateX(-50%) translateY(-6px);transition:opacity .16s ease,transform .16s ease;';
             (document.body || document.documentElement).appendChild(toast);
         }
         clearTimeout(backgroundToastTimer);
         clearTimeout(backgroundToastRemoveTimer);
-        toast.style.opacity = '1';
-        toast.style.transform = 'translate(-50%,0)';
+        // 强制 reflow 后再触发过渡，避免 WebKit 新插入元素同帧改 opacity 导致的首帧不渲染。
+        void toast.offsetWidth;
+        const show = function () {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateX(-50%) translateY(0)';
+        };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(show);
+        else show();
         backgroundToastTimer = setTimeout(function () {
             toast.style.opacity = '0';
-            toast.style.transform = 'translate(-50%,6px)';
-            backgroundToastRemoveTimer = setTimeout(function () { toast.remove(); }, 140);
-        }, 1000);
+            toast.style.transform = 'translateX(-50%) translateY(-6px)';
+            backgroundToastRemoveTimer = setTimeout(function () { toast.remove(); }, 180);
+        }, 1600);
     }
 
     function openLinkWithAnchor(href, shouldShowToast) {
