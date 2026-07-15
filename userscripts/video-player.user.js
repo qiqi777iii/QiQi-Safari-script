@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.4
+// @version      1.0.5
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @description  检测并控制当前网页视频，支持播放、暂停、快进、后退和全屏。
@@ -28,7 +28,7 @@
   const PAGER_HEIGHT = 35;
   const DEFAULT_RIGHT = PAGER_RIGHT_GAP;
   const DEFAULT_BOTTOM = BOTTOM_GAP + PAGER_HEIGHT + STACK_GAP;
-  const CURRENT_LAYOUT_VERSION = '1.0.47';
+  const CURRENT_LAYOUT_VERSION = '1.0.48';
   const MIN_MAIN_VIDEO_W = 180;
   const MIN_MAIN_VIDEO_H = 120;
   const MIN_MAIN_VIDEO_AREA_RATIO = 0.12;
@@ -1403,8 +1403,8 @@
       return b;
     }
 
-    // 从左到右：后退 5 秒 / 正常播放（带声音）/ 静音播放 / 前进 5 秒 / 播放列表上一项 / 下一项（仅对应项存在时显示）/ 全屏。
-    // 全屏始终保持为最右侧按钮，因此它的右边缘可以精确对齐悬浮翻页右边缘。
+    // 从左到右：后退 5 秒 / 正常播放（带声音）/ 静音播放 / 前进 5 秒 / 全屏 / 播放列表上一项 / 下一项（仅对应项存在时显示）。
+    // 整个工具栏始终以最右侧按钮的右边缘对齐悬浮翻页右边缘。
     backBtn = makeBtn('videoplay-fab-back');
     soundBtn = makeBtn('videoplay-fab-sound');
     muteBtn = makeBtn('videoplay-fab-mute');
@@ -1416,9 +1416,9 @@
     toolbar.appendChild(soundBtn);
     toolbar.appendChild(muteBtn);
     toolbar.appendChild(forwardBtn);
+    toolbar.appendChild(fullscreenBtn);
     toolbar.appendChild(prevPlaylistBtn);
     toolbar.appendChild(nextPlaylistBtn);
-    toolbar.appendChild(fullscreenBtn);
     isolateFloatingUi(toolbar);
     document.body.appendChild(toolbar);
 
