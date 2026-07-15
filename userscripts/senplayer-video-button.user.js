@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Senplayer播放
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version 1.0.1
+// @version 1.0.2
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @description 捕获当前网页视频地址，可一键复制地址或通过 SenPlayer 播放。
@@ -24,7 +24,7 @@
   const SCRIPT = 'SenPlayer';
   const WRAP_ID = '__qiqi_senplayer_button__';
   const PANEL_ID = '__qiqi_senplayer_panel__';
-  const POS_KEY = 'qiqi_senplayer_pos_v7';
+  const POS_KEY = 'qiqi_senplayer_pos_v8';
   const SENPLAYER_SCHEME = 'senplayer://x-callback-url/play?url={url}';
   const BTN_SIZE = 35;
   const SIDE_GAP = 6;
@@ -605,6 +605,7 @@
         try {
           records.forEach((record) => {
             if (record.type === 'attributes') {
+              if (record.target?.id === 'videoplay-fab') applyNeighborPosition();
               scanElement(record.target);
               refresh ||= /^(VIDEO|AUDIO|SOURCE)$/.test(record.target?.tagName || '');
               return;
@@ -630,7 +631,7 @@
           });
         } finally { endScanBatch(); }
         if (refresh) updateButton();
-      }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'href', 'data-src', 'poster'] });
+      }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'href', 'data-src', 'poster', 'style'] });
     } catch (e) { log('observer failed', e); }
 
     try {
