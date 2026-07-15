@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         悬浮翻页
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.3.1
+// @version      1.3.2
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @description  自动识别页面的上一页和下一页，并提供关闭、新建 Safari 起始页、刷新及可拖动的悬浮翻页按钮。
@@ -48,6 +48,8 @@
     navigating: false,
     savedPosition: null,
     dragging: false,
+    dragGestureMoved: false,
+    suppressClickUntil: 0,
     initialized: false,
     settingsLoaded: false,
     numericPager: null,
@@ -1548,6 +1550,7 @@
     if (!button) return;
     let lastRun = 0;
     const run = (e) => {
+      if (STATE.dragGestureMoved || Date.now() < STATE.suppressClickUntil) return;
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -1860,7 +1863,7 @@
         -webkit-backdrop-filter: blur(10px) saturate(140%);
         overflow: hidden;
         user-select: none;
-        touch-action: manipulation;
+        touch-action: none;
       }
       html:has(#__tb__) #${SCRIPT_ID} {
         border-radius: 0 999px 999px 0;
@@ -2120,21 +2123,21 @@
     bindActionButton(box.querySelector(".close-tab"), closeCurrentTab);
     bindActionButton(box.querySelector(".new-tab"), openStartPage);
     bindActionButton(box.querySelector(".refresh"), reloadPage);
-    setupPageControl(box, box.querySelector(".page"));
+    setupMenuDrag(box);
 
-    STATE.savedPosition = null;
-    applyDefaultMenuPosition(box);
+    if (STATE.savedPosition) applySavedMenuPosition(box);
+    else applyDefaultMenuPosition(box);
 
     return box;
   }
 
-  function setupPageControl(box, handle) {
+  function setupMenuDrag(box) {
     let pointerId = null;
     let startX = 0;
     let startY = 0;
     let startLeft = 0;
     let startTop = 0;
-    let moved = false;
+    let downTarget = null;
 
     const moveBox = (clientX, clientY) => {
       const pos = clampSavedMenuPosition(startLeft + clientX - startX, startTop + clientY - startY, box);
@@ -2146,69 +2149,60 @@
     };
 
     const keepTemporaryPosition = () => {
-      const left = parseFloat(box.style.left || box.getBoundingClientRect().left || 0) || 0;
-      const top = parseFloat(box.style.top || box.getBoundingClientRect().top || 0) || 0;
-      STATE.savedPosition = clampSavedMenuPosition(left, top, box);
+      const rect = box.getBoundingClientRect();
+      STATE.savedPosition = clampSavedMenuPosition(rect.left, rect.top, box);
     };
 
-    handle.addEventListener("pointerdown", (e) => {
+    box.addEventListener("pointerdown", (e) => {
       if (e.button != null && e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
       pointerId = e.pointerId;
-      moved = false;
+      downTarget = e.target;
+      STATE.dragGestureMoved = false;
       startX = e.clientX;
       startY = e.clientY;
       const rect = box.getBoundingClientRect();
       startLeft = rect.left;
       startTop = rect.top;
-      box.style.left = `${rect.left}px`;
-      box.style.top = `${rect.top}px`;
-      box.style.right = "auto";
-      box.style.bottom = "auto";
-      STATE.dragging = true;
-      box.classList.add("dragging");
-      try { handle.setPointerCapture(pointerId); } catch (_) {}
-      // 拖动位置只在当前页面生命周期内生效，刷新后自动恢复默认。
     });
 
-    handle.addEventListener("pointermove", (e) => {
+    box.addEventListener("pointermove", (e) => {
       if (pointerId !== e.pointerId) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!STATE.dragGestureMoved && Math.abs(dx) <= 6 && Math.abs(dy) <= 6) return;
       e.preventDefault();
       e.stopPropagation();
-      if (Math.abs(e.clientX - startX) > 6 || Math.abs(e.clientY - startY) > 6) {
-        moved = true;
+      if (!STATE.dragGestureMoved) {
+        STATE.dragGestureMoved = true;
+        STATE.dragging = true;
+        box.classList.add("dragging");
+        try { box.setPointerCapture(pointerId); } catch (_) {}
       }
-      if (moved) moveBox(e.clientX, e.clientY);
+      moveBox(e.clientX, e.clientY);
     });
 
-    const finish = (e) => {
+    const finish = (e, cancelled) => {
       if (pointerId !== e.pointerId) return;
-      e.preventDefault();
-      e.stopPropagation();
-      try { handle.releasePointerCapture(pointerId); } catch (_) {}
+      const moved = STATE.dragGestureMoved;
+      try { box.releasePointerCapture(pointerId); } catch (_) {}
       pointerId = null;
       STATE.dragging = false;
       box.classList.remove("dragging");
       if (moved) {
+        e.preventDefault();
+        e.stopPropagation();
         keepTemporaryPosition();
+        STATE.suppressClickUntil = Date.now() + 500;
         syncBoundLink(box);
+      } else if (!cancelled && downTarget?.closest?.(".page")) {
+        promptJumpPage();
       }
-      else promptJumpPage();
+      downTarget = null;
+      setTimeout(() => { STATE.dragGestureMoved = false; }, 0);
     };
 
-    handle.addEventListener("pointerup", finish);
-    handle.addEventListener("pointercancel", (e) => {
-      if (pointerId !== e.pointerId) return;
-      try { handle.releasePointerCapture(pointerId); } catch (_) {}
-      pointerId = null;
-      STATE.dragging = false;
-      box.classList.remove("dragging");
-      if (moved) {
-        keepTemporaryPosition();
-        syncBoundLink(box);
-      }
-    });
+    box.addEventListener("pointerup", (e) => finish(e, false));
+    box.addEventListener("pointercancel", (e) => finish(e, true));
   }
 
   async function updateMenu() {
@@ -2242,11 +2236,9 @@
     box.querySelector(".prev").disabled = !STATE.prev;
     box.querySelector(".next").disabled = !STATE.next;
     requestAnimationFrame(() => {
+      if (STATE.dragging) return;
       safeCall("悬浮菜单定位失败", () => {
-        if (shouldForceRightBottomPosition() || !hasPagination) {
-          applyDefaultMenuPosition(box);
-        }
-        else if (STATE.savedPosition) {
+        if (STATE.savedPosition) {
           applySavedMenuPosition(box);
         } else {
           applyDefaultMenuPosition(box);
@@ -2402,11 +2394,10 @@
       stabilizeTimer = setTimeout(() => {
         stabilizeTimer = null;
         if (!box || STATE.dragging) return;
-        const hasPagination = box.dataset.pagination !== "false";
-        if (shouldForceRightBottomPosition() || !hasPagination) {
-          applyDefaultMenuPosition(box);
-        } else if (STATE.savedPosition) {
+        if (STATE.savedPosition) {
           applySavedMenuPosition(box);
+        } else {
+          applyDefaultMenuPosition(box);
         }
       }, 120);
     };

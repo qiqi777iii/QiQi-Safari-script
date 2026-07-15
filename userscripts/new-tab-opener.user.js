@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.2.1
+// @version      1.2.3
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -223,13 +223,14 @@
 
     function shouldBackgroundOpenOnCuratedVideoSite(url) {
         const site = getSharedSiteKey(location.hostname);
-        if (!['rule34video.com', 'spankbang.com', 'eporner.com'].includes(site)) return null;
+        if (!['rule34video.com', 'spankbang.com', 'eporner.com', 'xhamster.com'].includes(site)) return null;
         if (getSharedSiteKey(url.hostname) !== site) return false;
 
-        // 这三站只让具体视频详情页进入后台；分类、标签、作者、频道、搜索、
+        // 这些站只让具体视频详情页进入后台；分类、标签、作者、频道、搜索、
         // 排序、筛选、翻页、账户与操作链接全部维持网站原本的当前页行为。
         if (site === 'rule34video.com') return /^\/video\/\d+(?:\/|$)/i.test(url.pathname);
         if (site === 'spankbang.com') return /^\/[a-z0-9]+\/video(?:\/|$)/i.test(url.pathname);
+        if (site === 'xhamster.com') return /^\/videos\/[^/]+(?:\/|$)/i.test(url.pathname);
         return /^\/video-[^/]+(?:\/|$)/i.test(url.pathname) || /^\/hd-porn\/[a-z0-9]+(?:\/|$)/i.test(url.pathname);
     }
 
@@ -427,6 +428,7 @@
         if (target.closest('.__qiqi_mobile_preview_active__')) return true;
         if (site === 'rule34video.com') return Boolean(target.closest('[data-preview]'));
         if (site === 'eporner.com') return Boolean(target.closest('.mbimg'));
+        if (site === 'xhamster.com') return Boolean(target.closest('a[data-previewvideo][href*="/videos/"]'));
         if (site === 'spankbang.com') {
             const link = target.closest('a[href]');
             return Boolean(link && link.closest('.video-item, .js-video-item, [id^="recommended_video"]') && link.querySelector('img, video, source'));
@@ -439,7 +441,7 @@
         // 这些站会在卡片或 document 的冒泡阶段追加当前页跳转或广告弹窗，
         // 所以视频链接要先接管；封面预览脚本存在时，封面点击交给它处理，
         // 标题点击仍直接后台打开。
-        if (!['rule34video.com', 'spankbang.com', 'eporner.com'].includes(site) || !isPlainPrimaryClick(e)) return;
+        if (!['rule34video.com', 'spankbang.com', 'eporner.com', 'xhamster.com'].includes(site) || !isPlainPrimaryClick(e)) return;
         if (toolbar?.contains(e.target) || isCoverPreviewTarget(e.target, site)) return;
         const a = findLinkTarget(e.target);
         if (!a || a.dataset.tbInternalOpen === 'true') return;
@@ -615,14 +617,8 @@
 
     function syncDefaultPosition() {
         if (!toolbar || dragging) return;
-        if (document.getElementById(PAGER_ID)) {
-            savedPosition = null;
-            applyDefaultPosition();
-        } else if (savedPosition) {
-            applySavedPosition();
-        } else {
-            applyDefaultPosition();
-        }
+        if (savedPosition) applySavedPosition();
+        else applyDefaultPosition();
     }
 
     // 纯 fixed 定位：允许页面内临时拖动；刷新页面后恢复默认位置。
@@ -775,10 +771,7 @@
         nextFrame(function () {
             positionSyncScheduled = false;
             if (!toolbar || dragging) return;
-            if (document.getElementById(PAGER_ID)) {
-                savedPosition = null;
-                applyDefaultPosition();
-            } else if (savedPosition) applySavedPosition();
+            if (savedPosition) applySavedPosition();
             else applyDefaultPosition();
             // iOS Safari 偶发 fixed 图层滚动后不重绘；重写 transform 触发合成层刷新。
             toolbar.style.transform = 'translate3d(0,0,0)';

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Senplayer播放
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version 1.0.3
+// @version 1.0.4
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @description 捕获当前网页视频地址，可一键复制地址或通过 SenPlayer 播放。
@@ -43,6 +43,7 @@
   let status = null;
   let currentUrl = '';
   let dragging = false;
+  let temporaryPosition = null;
   let pointerStart = null;
   let observedUrl = location.href;
   let routeGeneration = 0;
@@ -468,8 +469,11 @@
       pointerStart = null;
       dragging = false;
       longPressFired = false;
-      if (cancelled) return;
-      if (wasDragging) return;
+      if (wasDragging && wrap) {
+        const rect = wrap.getBoundingClientRect();
+        temporaryPosition = { left: rect.left, top: rect.top };
+      }
+      if (cancelled || wasDragging) return;
       if (!wasLongPress) playCurrent().catch((error) => log('play failed', error));
     }
 
@@ -513,7 +517,13 @@
   }
 
   function applyNeighborPosition() {
-    if (!wrap) return;
+    if (!wrap || dragging) return;
+    if (temporaryPosition) {
+      setPosition(temporaryPosition.left, temporaryPosition.top);
+      const rect = wrap.getBoundingClientRect();
+      temporaryPosition = { left: rect.left, top: rect.top };
+      return;
+    }
     const neighbor = document.getElementById('videoplay-fab');
     if (neighbor) {
       const r = neighbor.getBoundingClientRect();
