@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 2.0.0
+// @version 2.0.1
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -22,10 +22,10 @@
   const DEFAULT_GROUP_NAME = "默认"
   const BTN_SIZE = 35
 
-  // 收藏按钮使用独立位置系统；默认位置与右侧组合栏保持 8px 间距，但之后互不跟随。
-  const LINK_BUTTON_ID = "__tb__"
+  // 收藏按钮默认放在悬浮翻页工具栏左侧，拖动后使用自己的独立位置。
+  const PAGER_ID = "universal-pagination-floating-menu"
   const INITIAL_GAP = 8
-  const LAYOUT_VERSION = "0.2.34-toolbar-v4"
+  const LAYOUT_VERSION = "0.2.35-pager-left-v1"
   const FALLBACK_RIGHT = 234
   const BOTTOM_GAP = 40
 
@@ -545,16 +545,16 @@
   function applyDefaultPosition() {
     if (!wrap) return
     const viewport = getViewportBox()
-    const link = document.getElementById(LINK_BUTTON_ID)
-    if (link) {
-      const rect = link.getBoundingClientRect()
+    const pager = document.getElementById(PAGER_ID)
+    if (pager) {
+      const rect = pager.getBoundingClientRect()
       if (rect.width > 0 && rect.height > 0) {
         const pos = clampPos(rect.left - INITIAL_GAP - BTN_SIZE, rect.top)
         wrap.style.left = pos.left + "px"
         wrap.style.right = "auto"
-        const usesBottom = link.style.bottom && link.style.bottom !== "auto" && (!link.style.top || link.style.top === "auto")
+        const usesBottom = pager.style.bottom && pager.style.bottom !== "auto" && (!pager.style.top || pager.style.top === "auto")
         if (usesBottom) {
-          wrap.style.bottom = link.style.bottom
+          wrap.style.bottom = pager.style.bottom
           wrap.style.top = "auto"
         } else {
           wrap.style.top = pos.top + "px"
@@ -766,7 +766,8 @@
         if (changedNodes.some(node =>
           node === document.head ||
           node?.tagName === "HEAD" ||
-          node?.id === WRAP_ID
+          node?.id === WRAP_ID ||
+          node?.id === PAGER_ID
         )) {
           watchHead(document.head)
           scheduleHealthCheck()
