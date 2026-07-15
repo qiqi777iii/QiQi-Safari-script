@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.2
+// @version      1.0.3
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @description  检测并控制当前网页视频，支持播放、暂停、快进、后退和全屏。
@@ -25,12 +25,10 @@
   const PAGER_ID = 'universal-pagination-floating-menu';
   const PAGER_RIGHT_GAP = 60;
   const PAGER_FALLBACK_WIDTH = 105;
-  const SENPLAYER_SIZE = 35;
-  const SENPLAYER_SIDE_GAP = 6;
   const PAGER_HEIGHT = 35;
   const DEFAULT_RIGHT = PAGER_RIGHT_GAP;
   const DEFAULT_BOTTOM = BOTTOM_GAP + PAGER_HEIGHT + STACK_GAP;
-  const CURRENT_LAYOUT_VERSION = '1.0.45';
+  const CURRENT_LAYOUT_VERSION = '1.0.46';
   const MIN_MAIN_VIDEO_W = 180;
   const MIN_MAIN_VIDEO_H = 120;
   const MIN_MAIN_VIDEO_AREA_RATIO = 0.12;
@@ -1258,9 +1256,7 @@
     const vv = getVisualViewportRect();
     const width = currentToolbarWidth();
     const pager = getPagerRect();
-    const groupWidth = SENPLAYER_SIZE + SENPLAYER_SIDE_GAP + width;
-    const groupLeft = pager.left + (pager.width - groupWidth) / 2;
-    const left = groupLeft + SENPLAYER_SIZE + SENPLAYER_SIDE_GAP;
+    const left = pager.right - width;
     toolbar.style.left = Math.max(vv.left, Math.min(left, vv.left + vv.width - width)) + 'px';
     toolbar.style.top = Math.max(vv.top, Math.floor(pager.top - STACK_GAP - BTN_SIZE)) + 'px';
     toolbar.style.right = 'auto';
