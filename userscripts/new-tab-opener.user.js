@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      2.0.10
+// @version      2.0.11
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -33,7 +33,6 @@
     const SHARED_HISTORY_HOOK_KEY = '__qiqiSharedHistoryHookV1__';
     const COVER_PREVIEW_READY_ATTR = 'data-qiqi-cover-preview-ready';
     const BACKGROUND_OPEN_REQUEST_EVENT = 'qiqi:background-open-request';
-    const BACKGROUND_OPEN_GESTURE_MAX_AGE = 1500;
     const GROUP_LEFT_WIDTH = 35;
 
     let enabled = true;
@@ -52,7 +51,6 @@
     let backgroundToastTimer = null;
     let backgroundToastRemoveTimer = null;
     let valueChangeListenerInstalled = false;
-    let recentBackgroundOpenGesture = null;
 
     function getVal(key, def) {
         try {
@@ -430,50 +428,14 @@
         openLinkInBackground(href);
     }
 
-    function findCuratedGestureUrl(target) {
-        if (!(target instanceof Element)) return null;
-        // 为封面预览脚本会接管的真实手势建立握手：封面区首次点击只预览不派发桥接，
-        // 二次点封面与点标题都会派发桥接事件，且都属于同一 curated 视频详情链接，
-        // 因此对任意 curated 视频详情链接的真实手势都记录，避免标题手势缺失导致桥接被拒。
-        const candidates = [];
-        const directLink = target.closest('a[href]');
-        if (directLink) candidates.push(directLink);
-        const card = target.closest('.__qiqi_mobile_preview_active__, .thumb-block, .mb, .item.thumb, a.th, .video-item, .js-video-item, [id^="recommended_video"]');
-        if (card) {
-            const cardLink = card.matches('a[href]') ? card : card.querySelector('a[href]');
-            if (cardLink && !candidates.includes(cardLink)) candidates.push(cardLink);
-        }
-        for (const link of candidates) {
-            let url;
-            try { url = new URL(link.getAttribute('href') || '', document.baseURI); } catch (_) { continue; }
-            if (shouldBackgroundOpenOnCuratedVideoSite(url) === true) return url.href;
-        }
-        return null;
-    }
-
-    function rememberBackgroundOpenGesture(event) {
-        if (event.isTrusted !== true) return;
-        const href = findCuratedGestureUrl(event.target);
-        if (!href) return;
-        recentBackgroundOpenGesture = { href, at: Date.now() };
-    }
-
-    function consumeMatchingBackgroundOpenGesture(href) {
-        const gesture = recentBackgroundOpenGesture;
-        recentBackgroundOpenGesture = null;
-        return Boolean(gesture && gesture.href === href && Date.now() - gesture.at <= BACKGROUND_OPEN_GESTURE_MAX_AGE);
-    }
-
     function handleBackgroundOpenRequest(event) {
         if (!enabled || event.detail?.source !== 'cover-video-preview') return;
         let url;
         try { url = new URL(String(event.detail.href || ''), document.baseURI); } catch (_) { return; }
         if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return;
         if (shouldBackgroundOpenOnCuratedVideoSite(url) !== true) return;
-        // 该事件由另一个 userscript 在同一次真实 pointer/touch 手势中同步派发。
-        // Safari 的隔离环境可能让 navigator.userActivation 在接收端瞬间变为 false，
-        // 因此改用本脚本预先记录的可信手势，并严格核对同一视频 URL 与短时窗口。
-        if (!consumeMatchingBackgroundOpenGesture(url.href)) return;
+        // 封面预览脚本在同一次真实用户点击中同步派发该事件（事件在 content/page 两个 world 间共享）。
+        // 用户激活仍在调用栈上，直接后台打开并提示即可；不再依赖任何手势握手。
         event.preventDefault();
         openLinkInBackground(url.href);
     }
@@ -918,8 +880,6 @@
         await loadEnabledState();
         installEnabledStateListener();
         window.addEventListener(BACKGROUND_OPEN_REQUEST_EVENT, handleBackgroundOpenRequest);
-        window.addEventListener('pointerdown', rememberBackgroundOpenGesture, true);
-        window.addEventListener('touchstart', rememberBackgroundOpenGesture, { capture: true, passive: true });
         window.addEventListener('click', handleCuratedVideoLinkOpenEarly, true);
         window.addEventListener('click', handleLinkOpen);
 
