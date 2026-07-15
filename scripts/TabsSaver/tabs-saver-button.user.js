@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 2.0.4
+// @version 2.0.7
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -21,9 +21,9 @@
   const DEFAULT_GROUP_NAME = "默认"
   const BTN_SIZE = 35
 
-  // 收藏按钮默认放在“新标签页打开”按钮左侧；其未加载时再放到悬浮翻页工具栏左侧。
+  // 收藏按钮默认放在“新标签页打开”按钮左侧；其未加载时再放到悬浮工具栏左侧。
   const NEW_TAB_TOOLBAR_ID = "__tb__"
-  const PAGER_ID = "universal-pagination-floating-menu"
+  const FLOATING_TOOLBAR_ID = "universal-pagination-floating-menu"
   const INITIAL_GAP = 8
   const FALLBACK_RIGHT = 234
   const BOTTOM_GAP = 40
@@ -40,6 +40,9 @@
   let observedHead = null
   let healthCheckQueued = false
   let globalListenersInstalled = false
+  let neighborResizeObserver = null
+  let neighborMutationObserver = null
+  let observedNeighbor = null
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -465,7 +468,13 @@
 #${DIALOG_ID} .qts-dialog-title{font-size:24px;font-weight:700;line-height:30px;}
 #${DIALOG_ID} .qts-dialog-section-title{margin-top:18px;margin-bottom:6px;font-size:13px;font-weight:600;color:#8E8E93;}
 #${DIALOG_ID} .qts-dialog-choice{display:flex;align-items:center;gap:11px;padding:9px 0;font-size:17px;}
-#${DIALOG_ID} .qts-dialog-choice input{width:22px;height:22px;margin:0;accent-color:#7C4DFF;}
+#${DIALOG_ID} .qts-dialog-choice input{width:22px!important;height:22px!important;margin:0!important;}
+#${DIALOG_ID} input[type="radio"],#${DIALOG_ID} input[type="checkbox"]{-webkit-appearance:none!important;appearance:none!important;display:inline-block!important;box-sizing:border-box!important;position:static!important;inset:auto!important;float:none!important;opacity:1!important;visibility:visible!important;clip:auto!important;clip-path:none!important;transform:none!important;padding:0!important;border:2px solid #8E8E93!important;background-color:transparent!important;background-image:none!important;background-repeat:no-repeat!important;background-position:center!important;box-shadow:none!important;flex:none!important;vertical-align:middle!important;cursor:pointer!important;}
+#${DIALOG_ID} input[type="radio"]{border-radius:50%!important;}
+#${DIALOG_ID} input[type="radio"]:checked{border:6px solid #7C4DFF!important;background-color:#fff!important;}
+#${DIALOG_ID} input[type="checkbox"]{border-radius:6px!important;}
+#${DIALOG_ID} input[type="checkbox"]:checked{border-color:#7C4DFF!important;background-color:#7C4DFF!important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M4 10.5l3.5 3.5L16 5.5' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important;}
+#${DIALOG_ID} input[type="radio"]:focus-visible,#${DIALOG_ID} input[type="checkbox"]:focus-visible{outline:3px solid rgba(10,132,255,.45)!important;outline-offset:2px!important;}
 #${DIALOG_ID} .qts-dialog-group-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
 #${DIALOG_ID} .qts-dialog-group{min-width:0;flex:1;height:46px;padding:0 12px;border:0;border-radius:12px;background:#E5E5EA;color:#111;font-size:16px;}
 #${DIALOG_ID} .qts-dialog-new-group{width:46px;height:46px;border:0;border-radius:12px;background:#E5E5EA;color:#007AFF;font-size:24px;}
@@ -474,20 +483,20 @@
 #${DIALOG_ID} .qts-select-all{border:0;background:transparent;color:#007AFF;font-size:13px;}
 #${DIALOG_ID} .qts-tab-list{max-height:220px;overflow:auto;}
 #${DIALOG_ID} .qts-tab-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:.5px solid rgba(60,60,67,.16);}
-#${DIALOG_ID} .qts-tab-row input{width:20px;height:20px;margin:2px 0 0;accent-color:#7C4DFF;flex:none;}
+#${DIALOG_ID} .qts-tab-row input{width:20px!important;height:20px!important;margin:2px 0 0!important;flex:none!important;}
 #${DIALOG_ID} .qts-tab-row span{min-width:0;display:block;}
 #${DIALOG_ID} .qts-tab-row strong,#${DIALOG_ID} .qts-tab-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 #${DIALOG_ID} .qts-tab-row strong{font-size:14px;font-weight:500;}
 #${DIALOG_ID} .qts-tab-row small{margin-top:2px;font-size:11px;color:#8E8E93;}
 #${DIALOG_ID} .qts-dialog-count{margin-top:16px;font-size:18px;color:#8E8E93;}
 #${DIALOG_ID} .qts-dialog-option{display:flex;align-items:center;gap:12px;margin:22px 0;font-size:17px;}
-#${DIALOG_ID} .qts-dialog-option input{width:24px;height:24px;margin:0;accent-color:#7C4DFF;}
+#${DIALOG_ID} .qts-dialog-option input{width:24px!important;height:24px!important;margin:0!important;}
 #${DIALOG_ID} .qts-dialog-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px;padding-top:12px;}
 #${DIALOG_ID} .qts-dialog-actions button{height:52px;border:0;border-radius:14px;font-size:18px;font-weight:600;}
 #${DIALOG_ID} .qts-dialog-cancel{background:#E5E5EA;color:#111;}
 #${DIALOG_ID} .qts-dialog-save{background:#7C4DFF;color:#fff;}
 #${DIALOG_ID} button:disabled{opacity:.55;}
-@media (prefers-color-scheme:dark){#${BUTTON_ID}{background:rgba(44,44,46,.82);color:rgba(255,255,255,.94);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#${BUTTON_ID}[data-saved="true"]{color:#30D158;}#${PICKER_ID}{background:rgba(28,28,30,.78);border-color:rgba(255,255,255,.12);color:#fff;}#${PICKER_ID} .qts-title{color:#98989F;}#${DIALOG_ID}{color:#fff;}#${DIALOG_ID} .qts-dialog-card{background:rgba(28,28,30,.96);}#${DIALOG_ID} .qts-dialog-cancel,#${DIALOG_ID} .qts-dialog-group,#${DIALOG_ID} .qts-dialog-new-group{background:#3A3A3C;color:#fff;}#${DIALOG_ID} .qts-dialog-new-group{color:#0A84FF;}}
+@media (prefers-color-scheme:dark){#${BUTTON_ID}{background:rgba(44,44,46,.82);color:rgba(255,255,255,.94);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#${BUTTON_ID}[data-saved="true"]{color:#30D158;}#${PICKER_ID}{background:rgba(28,28,30,.78);border-color:rgba(255,255,255,.12);color:#fff;}#${PICKER_ID} .qts-title{color:#98989F;}#${DIALOG_ID}{color:#fff;}#${DIALOG_ID} .qts-dialog-card{background:rgba(28,28,30,.96);}#${DIALOG_ID} .qts-dialog-cancel,#${DIALOG_ID} .qts-dialog-group,#${DIALOG_ID} .qts-dialog-new-group{background:#3A3A3C;color:#fff;}#${DIALOG_ID} input[type="radio"]:checked{background-color:#1C1C1E!important;}}
 `
     ;(document.head || document.documentElement).appendChild(style)
   }
@@ -521,10 +530,30 @@
     return true
   }
 
+  function observeNeighbor(neighbor) {
+    if (observedNeighbor === neighbor) return
+    neighborResizeObserver?.disconnect()
+    neighborMutationObserver?.disconnect()
+    observedNeighbor = neighbor || null
+    if (!neighbor) return
+    if (typeof ResizeObserver === "function") {
+      neighborResizeObserver = new ResizeObserver(schedulePositionStabilize)
+      neighborResizeObserver.observe(neighbor)
+    }
+    if (typeof MutationObserver === "function") {
+      neighborMutationObserver = new MutationObserver(schedulePositionStabilize)
+      neighborMutationObserver.observe(neighbor, {
+        attributes: true,
+        attributeFilter: ["style", "class", "hidden"],
+      })
+    }
+  }
+
   function applyDefaultPosition() {
     if (!wrap) return
     const viewport = getViewportBox()
-    const neighbor = document.getElementById(NEW_TAB_TOOLBAR_ID) || document.getElementById(PAGER_ID)
+    const neighbor = document.getElementById(NEW_TAB_TOOLBAR_ID) || document.getElementById(FLOATING_TOOLBAR_ID)
+    observeNeighbor(neighbor)
     if (neighbor) {
       const rect = neighbor.getBoundingClientRect()
       if (rect.width > 0 && rect.height > 0) {
@@ -662,6 +691,7 @@
     if (globalListenersInstalled) return
     globalListenersInstalled = true
     window.addEventListener("resize", schedulePositionStabilize)
+    window.addEventListener("scroll", schedulePositionStabilize, { passive: true })
     window.visualViewport?.addEventListener("resize", schedulePositionStabilize)
     window.visualViewport?.addEventListener("scroll", schedulePositionStabilize)
     window.addEventListener("pageshow", () => { refreshSavedVisual(); scheduleHealthCheck() })
@@ -713,26 +743,25 @@
     headObserver.observe(head, { childList: true })
   }
 
+  function mutationTouchesFloatingUi(mutation) {
+    const selector = `#${WRAP_ID}, #${BUTTON_ID}, #${NEW_TAB_TOOLBAR_ID}, #${FLOATING_TOOLBAR_ID}`
+    const nodes = [...mutation.addedNodes, ...mutation.removedNodes]
+    return nodes.some(node => {
+      if (!(node instanceof Element)) return false
+      if (node.tagName === "HEAD" || node.tagName === "BODY") return true
+      return node.matches?.(selector) || Boolean(node.querySelector?.(selector))
+    })
+  }
+
   function startDomGuard() {
     const root = document.documentElement
     if (!root) return
     watchHead(document.head)
     if (rootObserver) return
     rootObserver = new MutationObserver(mutations => {
-      for (const mutation of mutations) {
-        const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes]
-        if (changedNodes.some(node =>
-          node === document.head ||
-          node?.tagName === "HEAD" ||
-          node?.id === WRAP_ID ||
-          node?.id === NEW_TAB_TOOLBAR_ID ||
-          node?.id === PAGER_ID
-        )) {
-          watchHead(document.head)
-          scheduleHealthCheck()
-          return
-        }
-      }
+      if (!mutations.some(mutationTouchesFloatingUi)) return
+      watchHead(document.head)
+      scheduleHealthCheck()
     })
     rootObserver.observe(root, { childList: true, subtree: true })
   }
@@ -753,7 +782,6 @@
     button.addEventListener("pointercancel", onPointerUp)
     wrap.appendChild(button)
     document.documentElement.appendChild(wrap)
-    savedPosition = null
     applyDefaultPosition()
     refreshSavedVisual()
     installPositionListeners()
@@ -764,7 +792,7 @@
   function boot() {
     createButton()
     scheduleHealthCheck()
-    ;[40, 120, 300, 700, 1500, 3000].forEach(delay => setTimeout(schedulePositionStabilize, delay))
+    ;[120, 500, 1500].forEach(delay => setTimeout(schedulePositionStabilize, delay))
   }
 
   boot()

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.2.3
+// @version      1.2.5
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -10,7 +10,7 @@
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @grant        GM.addValueChangeListener
-// @run-at       document-start
+// @run-at       document-end
 // ==/UserScript==
 
 (function () {
@@ -20,12 +20,12 @@
     const SHARED_ENABLED_KEY_PREFIX = 'newTabEnabledBySite:';
     const BTN_SIZE = 35;
     const BOTTOM_GAP = 40;
-    const LINK_PAGER_GAP = 0;
-    const PAGER_RIGHT_GAP = 16;
-    const PAGER_HEIGHT = 35;
-    const DEFAULT_BOTTOM = BOTTOM_GAP + (PAGER_HEIGHT - BTN_SIZE) / 2;
-    const FALLBACK_PAGER_WIDTH = 175;
-    const DEFAULT_RIGHT = PAGER_RIGHT_GAP + FALLBACK_PAGER_WIDTH + LINK_PAGER_GAP;
+    const LINK_TOOLBAR_GAP = 0;
+    const TOOLBAR_RIGHT_GAP = 16;
+    const NEIGHBOR_TOOLBAR_HEIGHT = 35;
+    const DEFAULT_BOTTOM = BOTTOM_GAP + (NEIGHBOR_TOOLBAR_HEIGHT - BTN_SIZE) / 2;
+    const FALLBACK_TOOLBAR_WIDTH = 70;
+    const DEFAULT_RIGHT = TOOLBAR_RIGHT_GAP + FALLBACK_TOOLBAR_WIDTH + LINK_TOOLBAR_GAP;
     const GROUP_DRAG_EVENT = 'qiqi-floating-toolbar-group-drag';
     const SHARED_URL_CHANGE_EVENT = 'qiqi:urlchange';
     const SHARED_HISTORY_HOOK_KEY = '__qiqiSharedHistoryHookV1__';
@@ -38,7 +38,7 @@
         'action', 'delete', 'remove', 'follow', 'like', 'vote', 'favorite', 'bookmark', 'cart'
     ]);
 
-    let enabled = true;
+    let enabled = getVal('newTabEnabled', true);
     const sharedSiteKey = getSharedSiteKey(location.hostname);
     const sharedEnabledKey = SHARED_ENABLED_KEY_PREFIX + sharedSiteKey;
     let toolbar, linkBtn, bodyObserver, toolbarEnsureTimer, neighborResizeObserver, neighborMutationObserver, observedNeighbor;
@@ -50,7 +50,7 @@
     let dragging = false;
     let moved = false;
     let startX = 0, startY = 0, startLeft = 0, startTop = 0;
-    let dragPager = null, startPagerLeft = 0, startPagerTop = 0;
+    let dragNeighborToolbar = null, startNeighborLeft = 0, startNeighborTop = 0;
     let backgroundToastTimer = null;
     let backgroundToastRemoveTimer = null;
     let visualBurstTimers = [];
@@ -270,7 +270,7 @@
 
     function scheduleVisualBurst() {
         visualBurstTimers.forEach(clearTimeout);
-        visualBurstTimers = [0, 40, 120, 300, 700, 1500, 3000, 6000].map(function (ms) {
+        visualBurstTimers = [0, 120, 500, 1500].map(function (ms) {
             return setTimeout(ensureToolbarAndSync, ms);
         });
     }
@@ -533,10 +533,10 @@
         };
     }
 
-    function clampPagerGroupPos(left, top, pager) {
+    function clampToolbarGroupPos(left, top, toolbar) {
         const viewport = getViewportBox();
-        const width = Math.max(pager?.offsetWidth || pager?.getBoundingClientRect?.().width || 0, 35);
-        const height = Math.max(pager?.offsetHeight || pager?.getBoundingClientRect?.().height || 0, 35);
+        const width = Math.max(toolbar?.offsetWidth || toolbar?.getBoundingClientRect?.().width || 0, 35);
+        const height = Math.max(toolbar?.offsetHeight || toolbar?.getBoundingClientRect?.().height || 0, 35);
         const maxLeft = Math.max(0, viewport.width - width);
         const minLeft = Math.min(GROUP_LEFT_WIDTH, maxLeft);
         return {
@@ -545,9 +545,9 @@
         };
     }
 
-    function dispatchGroupDrag(pager, phase, left, top) {
-        if (!pager) return;
-        pager.dispatchEvent(new CustomEvent(GROUP_DRAG_EVENT, { detail: { phase, left, top } }));
+    function dispatchGroupDrag(toolbar, phase, left, top) {
+        if (!toolbar) return;
+        toolbar.dispatchEvent(new CustomEvent(GROUP_DRAG_EVENT, { detail: { phase, left, top } }));
     }
 
     function applySavedPosition() {
@@ -562,8 +562,8 @@
         return true;
     }
 
-    // 悬浮翻页栏 id：链接按钮直接贴在它左侧，形成一条视觉组合栏。
-    const PAGER_ID = 'universal-pagination-floating-menu';
+    // 悬浮工具栏保留兼容 DOM id：链接按钮直接贴在它左侧，形成一条视觉组合栏。
+    const FLOATING_TOOLBAR_ID = 'universal-pagination-floating-menu';
 
     function observeNeighbor(neighbor) {
         if (observedNeighbor === neighbor) return;
@@ -577,17 +577,17 @@
         }
         if (typeof MutationObserver === 'function') {
             neighborMutationObserver = new MutationObserver(schedulePositionStabilize);
-            neighborMutationObserver.observe(neighbor, { attributes: true, attributeFilter: ['style', 'data-pagination', 'data-hidden'] });
+            neighborMutationObserver.observe(neighbor, { attributes: true, attributeFilter: ['style'] });
         }
     }
 
-    // 默认位置：横向读取悬浮翻页栏的实时 rect，把链接按钮无缝贴在其左侧；
+    // 默认位置：横向读取悬浮工具栏的实时 rect，把链接按钮无缝贴在其左侧；
     // 纵向始终使用 fixed bottom，不读取 rect.top，避免 iOS 过度滑动/地址栏伸缩时被临时 top 值带偏。
-    // 若翻页栏尚未创建，则使用保守 right/bottom 兜底。
+    // 若悬浮工具栏尚未创建，则使用保守 right/bottom 兜底。
     function applyDefaultPosition() {
         if (!toolbar) return;
         const viewport = getViewportBox();
-        const neighbor = document.getElementById(PAGER_ID);
+        const neighbor = document.getElementById(FLOATING_TOOLBAR_ID);
         observeNeighbor(neighbor);
         // 纵向用 CSS bottom 锚定贴底（不换算绝对 top），避免 iOS Safari 地址栏伸缩时
         // viewport.height 取到偏大的布局视口高度，把按钮顶到屏幕中间。
@@ -595,7 +595,7 @@
         if (neighbor) {
             const rect = neighbor.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-                const pos = clampPos(rect.left - LINK_PAGER_GAP - BTN_SIZE, 0);
+                const pos = clampPos(rect.left - LINK_TOOLBAR_GAP - BTN_SIZE, 0);
                 toolbar.style.left = pos.left + 'px';
                 toolbar.style.right = 'auto';
                 const usesBottom = neighbor.style.bottom && neighbor.style.bottom !== 'auto' && (!neighbor.style.top || neighbor.style.top === 'auto');
@@ -669,11 +669,11 @@
         const rect = toolbar.getBoundingClientRect();
         startLeft = rect.left;
         startTop = rect.top;
-        dragPager = document.getElementById(PAGER_ID);
-        if (dragPager) {
-            const pagerRect = dragPager.getBoundingClientRect();
-            startPagerLeft = pagerRect.left;
-            startPagerTop = pagerRect.top;
+        dragNeighborToolbar = document.getElementById(FLOATING_TOOLBAR_ID);
+        if (dragNeighborToolbar) {
+            const neighborRect = dragNeighborToolbar.getBoundingClientRect();
+            startNeighborLeft = neighborRect.left;
+            startNeighborTop = neighborRect.top;
         }
         // 纯 fixed：直接用 rect，不加 offset。
         toolbar.style.left = rect.left + 'px';
@@ -692,12 +692,12 @@
         if (!moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
         moved = true;
 
-        if (dragPager) {
-            const pos = clampPagerGroupPos(startPagerLeft + dx, startPagerTop + dy, dragPager);
-            dispatchGroupDrag(dragPager, 'move', pos.left, pos.top);
+        if (dragNeighborToolbar) {
+            const pos = clampToolbarGroupPos(startNeighborLeft + dx, startNeighborTop + dy, dragNeighborToolbar);
+            dispatchGroupDrag(dragNeighborToolbar, 'move', pos.left, pos.top);
             applyDefaultPosition();
         } else {
-            // 翻页脚本未加载时，仍允许链接按钮独立拖动。
+            // 悬浮工具栏未加载时，仍允许链接按钮独立拖动。
             const pos = clampPos(startLeft + dx, startTop + dy);
             toolbar.style.left = pos.left + 'px';
             toolbar.style.top = pos.top + 'px';
@@ -711,18 +711,18 @@
         dragging = false;
         linkBtn.releasePointerCapture?.(e.pointerId);
 
-        if (moved && dragPager) {
-            const rect = dragPager.getBoundingClientRect();
-            dispatchGroupDrag(dragPager, e.type === 'pointercancel' ? 'cancel' : 'end', rect.left, rect.top);
+        if (moved && dragNeighborToolbar) {
+            const rect = dragNeighborToolbar.getBoundingClientRect();
+            dispatchGroupDrag(dragNeighborToolbar, e.type === 'pointercancel' ? 'cancel' : 'end', rect.left, rect.top);
             savedPosition = null;
         } else if (moved) {
-            // 翻页脚本未加载时仅保留本页面内的临时位置。
+            // 悬浮工具栏未加载时仅保留本页面内的临时位置。
             savedPosition = clampPos(parseInt(toolbar.style.left, 10) || 0, parseInt(toolbar.style.top, 10) || 0);
         } else if (e.type !== 'pointercancel') {
             enabled = !enabled;
             refresh();
         }
-        dragPager = null;
+        dragNeighborToolbar = null;
     }
 
     function isToolbarHealthy() {
@@ -752,15 +752,25 @@
         }, delay == null ? 30 : delay);
     }
 
+    function mutationTouchesFloatingUi(mutation) {
+        const selector = '#__tb__, #__tb_btn__, #__tb_style__, #' + FLOATING_TOOLBAR_ID;
+        const nodes = Array.from(mutation.addedNodes).concat(Array.from(mutation.removedNodes));
+        return nodes.some(function (node) {
+            if (!(node instanceof Element)) return false;
+            if (node.tagName === 'HEAD' || node.tagName === 'BODY') return true;
+            return node.matches?.(selector) || Boolean(node.querySelector?.(selector));
+        });
+    }
+
     function startBodyGuard() {
         const parent = document.documentElement || document.body;
         if (!parent || bodyObserver) return;
-        bodyObserver = new MutationObserver(function () {
-            // 只调度一次轻量健康检查，不在高频 DOM 变化里等待 idle，避免繁忙页面上按钮补挂被长期推迟。
+        bodyObserver = new MutationObserver(function (mutations) {
+            if (!mutations.some(mutationTouchesFloatingUi)) return;
+            // 相关节点变化才调度一次轻量健康检查；不扫描普通页面内容。
             scheduleEnsureToolbar(30);
         });
-        // 只关注 body/head 等根级重建；链接打开已改为单一事件代理，不再扫描页面 DOM。
-        bodyObserver.observe(parent, { childList: true });
+        bodyObserver.observe(parent, { childList: true, subtree: true });
     }
 
     let positionSyncScheduled = false;
@@ -830,7 +840,7 @@
         if (!ensureToolbar()) return;
         startBodyGuard();
         installPositionListenersOnce();
-        // 悬浮翻页按钮稍晚创建时，由 body guard / pageshow / focus 事件驱动同步位置。
+        // 悬浮工具栏稍晚创建时，由 body guard / pageshow / focus 事件驱动同步位置。
         scheduleVisualBurst();
     }
 
@@ -839,18 +849,15 @@
     }
 
     async function start() {
-        await loadEnabledState();
-        installEnabledStateListener();
         window.addEventListener(BACKGROUND_OPEN_REQUEST_EVENT, handleBackgroundOpenRequest);
         window.addEventListener('click', handleCuratedVideoLinkOpenEarly, true);
         window.addEventListener('click', handleLinkOpen);
 
-        // 初始化：共享状态载入后立即执行，并保留 DOMContentLoaded 兜底，避免 body 被站点稍后创建。
-        if (document.body || document.documentElement) bootstrap();
-        else {
-            bootstrap();
-            document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
-        }
+        // document-end 先创建基础按钮；GM 状态读取完成后只刷新开关外观，避免存储延迟阻塞 UI。
+        bootstrap();
+        await loadEnabledState();
+        updateBtn();
+        installEnabledStateListener();
     }
 
     void start();

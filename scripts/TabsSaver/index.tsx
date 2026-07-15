@@ -130,7 +130,7 @@ type DaySection = { key: number; label: string; items: Bookmark[] }
 const TRASH_RETENTION_KEY = "tab.trashRetentionDays"
 const BROWSER_SCRIPT_NAME = "tabs-saver-button.user.js"
 const GUIDE_SHOWN_KEY = "tab.guideShown"
-const APP_VERSION = "2.0.4"
+const APP_VERSION = "2.0.7"
 const CHANGELOG_SEEN_KEY = "tab.changelogSeenVersion"
 type ChangelogEntry = {
   version: string
@@ -139,6 +139,14 @@ type ChangelogEntry = {
   items: string[]
 }
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  {
+    version: "2.0.5",
+    date: "2026-07-16",
+    summary: "修复收藏范围选择框",
+    items: [
+      "收藏弹窗改用独立绘制的单选框和复选框，避免被网页样式隐藏。",
+    ],
+  },
   {
     version: "2.0.3",
     date: "2026-07-15",
