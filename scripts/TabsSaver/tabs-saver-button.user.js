@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace qiqi.tabs-saver
-// @version 2.0.3
+// @version 2.0.4
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -9,7 +9,6 @@
 // @grant Scripting.FileManager
 // @grant Scripting.tabs
 // @grant GM.closeTab
-// @grant GM.registerMenuCommand
 // ==/UserScript==
 
 (() => {
@@ -26,11 +25,8 @@
   const NEW_TAB_TOOLBAR_ID = "__tb__"
   const PAGER_ID = "universal-pagination-floating-menu"
   const INITIAL_GAP = 8
-  const LAYOUT_VERSION = "2.0.3-new-tab-left-v1"
   const FALLBACK_RIGHT = 234
   const BOTTOM_GAP = 40
-
-  const LS_KEY = "qiqi_tab_"
 
   let wrap = null
   let button = null
@@ -38,30 +34,12 @@
   let dragging = false
   let moved = false
   let startX = 0, startY = 0, startLeft = 0, startTop = 0
-  let menuRegistered = false
   let positionSyncScheduled = false
   let rootObserver = null
   let headObserver = null
   let observedHead = null
   let healthCheckQueued = false
   let globalListenersInstalled = false
-
-  function lsGet(key, def) {
-    try {
-      const v = localStorage.getItem(LS_KEY + key)
-      if (v === null) return def
-      const n = Number(v)
-      return Number.isNaN(n) ? v : n
-    } catch (_) { return def }
-  }
-
-  function lsSet(key, val) {
-    try { localStorage.setItem(LS_KEY + key, String(val)) } catch (_) {}
-  }
-
-  function lsRemove(key) {
-    try { localStorage.removeItem(LS_KEY + key) } catch (_) {}
-  }
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -583,18 +561,6 @@
     })
   }
 
-  function resetPosition() {
-    savedPosition = null
-    lsRemove("left")
-    lsRemove("top")
-    applyDefaultPosition()
-    if (button) {
-      button.style.opacity = "0.3"
-      setTimeout(() => { if (button) button.style.opacity = "1" }, 250)
-    }
-    showToast("已重置收藏按钮位置")
-  }
-
   function onPointerDown(e) {
     e.preventDefault()
     e.stopPropagation()
@@ -632,9 +598,8 @@
     dragging = false
     button.releasePointerCapture?.(e.pointerId)
     if (moved) {
+      // 只保留当前页面内的临时位置；刷新后恢复固定默认位置。
       savedPosition = clampPos(parseInt(wrap.style.left, 10) || 0, parseInt(wrap.style.top, 10) || 0)
-      lsSet("left", savedPosition.left)
-      lsSet("top", savedPosition.top)
       return
     }
     if (e.type === "pointercancel") return
@@ -691,14 +656,6 @@
 
   function closeGroupPicker() {
     document.getElementById(PICKER_ID)?.remove()
-  }
-
-  function registerMenu() {
-    if (menuRegistered) return
-    if (typeof GM !== "undefined" && GM.registerMenuCommand) {
-      menuRegistered = true
-      GM.registerMenuCommand("📍 重置收藏按钮位置", () => resetPosition())
-    }
   }
 
   function installPositionListeners() {
@@ -780,13 +737,6 @@
     rootObserver.observe(root, { childList: true, subtree: true })
   }
 
-  function migrateDefaultPosition() {
-    if (lsGet("layoutVersion", "") === LAYOUT_VERSION) return
-    lsRemove("left")
-    lsRemove("top")
-    lsSet("layoutVersion", LAYOUT_VERSION)
-  }
-
   function createButton() {
     if (document.getElementById(WRAP_ID)) return
     injectCSS()
@@ -803,24 +753,15 @@
     button.addEventListener("pointercancel", onPointerUp)
     wrap.appendChild(button)
     document.documentElement.appendChild(wrap)
-    const savedLeft = lsGet("left", null)
-    const savedTop = lsGet("top", null)
-    if (savedLeft !== null && savedTop !== null) {
-      savedPosition = clampPos(Number(savedLeft), Number(savedTop))
-      applySavedPosition()
-    } else {
-      savedPosition = null
-      applyDefaultPosition()
-    }
+    savedPosition = null
+    applyDefaultPosition()
     refreshSavedVisual()
-    registerMenu()
     installPositionListeners()
     startDomGuard()
     schedulePositionStabilize()
   }
 
   function boot() {
-    migrateDefaultPosition()
     createButton()
     scheduleHealthCheck()
     ;[40, 120, 300, 700, 1500, 3000].forEach(delay => setTimeout(schedulePositionStabilize, delay))

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         悬浮翻页
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.3
+// @version      1.3.1
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-pager.user.js
 // @description  自动识别页面的上一页和下一页，并提供关闭、新建 Safari 起始页、刷新及可拖动的悬浮翻页按钮。
@@ -11,7 +11,6 @@
 // @run-at       document-start
 // @grant        GM.getValue
 // @grant        GM.setValue
-// @grant        GM.registerMenuCommand
 // @grant        GM.log
 // @grant        GM.closeTab
 // @grant        GM.openInTab
@@ -22,7 +21,6 @@
   "use strict";
 
   const SCRIPT_ID = "universal-pagination-floating-menu";
-  const POS_KEY = `${SCRIPT_ID}:position:v13-group`;
   const SAFE_BOTTOM_GAP = 40;
   const DEFAULT_BOTTOM_GAP = 28;
   const PAGER_ITEM_SIZE = 35;
@@ -49,7 +47,6 @@
     updateTimer: null,
     navigating: false,
     savedPosition: null,
-    positionRevision: 0,
     dragging: false,
     initialized: false,
     settingsLoaded: false,
@@ -2094,7 +2091,7 @@
         </svg>
       </button>
       <button class="prev pager-item" type="button" title="上一页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"></path></svg></button>
-      <div class="page pager-item" title="点击选择页码，按住拖动位置（复原请用扩展菜单）"><span>?</span></div>
+      <div class="page pager-item" title="点击选择页码，按住可临时拖动；刷新页面后恢复默认位置"><span>?</span></div>
       <button class="next pager-item" type="button" title="下一页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"></path></svg></button>
     `;
     isolateFloatingUi(box);
@@ -2114,10 +2111,7 @@
       STATE.dragging = !finished;
       box.classList.toggle("dragging", !finished);
       syncBoundLink(box);
-      if (finished) {
-        STATE.positionRevision += 1;
-        gmSet(POS_KEY, STATE.savedPosition).catch(() => {});
-      }
+      if (finished) STATE.savedPosition = pos;
     });
     applyDefaultMenuPosition(box);
 
@@ -2128,29 +2122,8 @@
     bindActionButton(box.querySelector(".refresh"), reloadPage);
     setupPageControl(box, box.querySelector(".page"));
 
-    if (shouldForceRightBottomPosition()) {
-      STATE.savedPosition = null;
-      requestAnimationFrame(() => {
-        if (box.isConnected && document.getElementById(SCRIPT_ID) === box && !STATE.dragging) applyDefaultMenuPosition(box);
-      });
-    } else {
-      const positionRevision = STATE.positionRevision;
-      gmGet(POS_KEY, null).then((pos) => {
-        if (!box.isConnected || document.getElementById(SCRIPT_ID) !== box || STATE.dragging || STATE.positionRevision !== positionRevision) return;
-        if (pos && Number.isFinite(pos.left) && Number.isFinite(pos.top)) {
-          STATE.savedPosition = { left: pos.left, top: pos.top };
-          applySavedMenuPosition(box);
-          requestAnimationFrame(() => {
-            if (box.isConnected && document.getElementById(SCRIPT_ID) === box && !STATE.dragging && STATE.positionRevision === positionRevision && STATE.savedPosition) {
-              applySavedMenuPosition(box);
-            }
-          });
-        } else {
-          STATE.savedPosition = null;
-          applyDefaultMenuPosition(box);
-        }
-      }).catch(() => {});
-    }
+    STATE.savedPosition = null;
+    applyDefaultMenuPosition(box);
 
     return box;
   }
@@ -2172,11 +2145,10 @@
       syncBoundLink(box);
     };
 
-    const savePosition = async () => {
+    const keepTemporaryPosition = () => {
       const left = parseFloat(box.style.left || box.getBoundingClientRect().left || 0) || 0;
       const top = parseFloat(box.style.top || box.getBoundingClientRect().top || 0) || 0;
       STATE.savedPosition = clampSavedMenuPosition(left, top, box);
-      await gmSet(POS_KEY, STATE.savedPosition);
     };
 
     handle.addEventListener("pointerdown", (e) => {
@@ -2197,7 +2169,7 @@
       STATE.dragging = true;
       box.classList.add("dragging");
       try { handle.setPointerCapture(pointerId); } catch (_) {}
-      // 长按复原已移除，改为扩展菜单「📍 重置悬浮菜单位置」点击复原。
+      // 拖动位置只在当前页面生命周期内生效，刷新后自动恢复默认。
     });
 
     handle.addEventListener("pointermove", (e) => {
@@ -2219,8 +2191,7 @@
       STATE.dragging = false;
       box.classList.remove("dragging");
       if (moved) {
-        STATE.positionRevision += 1;
-        savePosition();
+        keepTemporaryPosition();
         syncBoundLink(box);
       }
       else promptJumpPage();
@@ -2234,8 +2205,7 @@
       STATE.dragging = false;
       box.classList.remove("dragging");
       if (moved) {
-        STATE.positionRevision += 1;
-        savePosition();
+        keepTemporaryPosition();
         syncBoundLink(box);
       }
     });
@@ -2406,16 +2376,6 @@
       STATE.enabled = true;
       scheduleUpdate(0);
     });
-
-    if (typeof GM !== "undefined" && GM.registerMenuCommand) {
-      GM.registerMenuCommand("📍 重置悬浮菜单位置", async () => {
-        STATE.positionRevision += 1;
-        STATE.savedPosition = null;
-        await gmSet(POS_KEY, null);
-        if (box) applyDefaultMenuPosition(box);
-        scheduleUpdate(0);
-      });
-    }
 
     hookHistory();
     normalizeXVideosHashLater();

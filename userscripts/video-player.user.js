@@ -1,21 +1,17 @@
 // ==UserScript==
 // @name         播放当前页视频
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.5
+// @version      1.0.6
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-player.user.js
 // @description  检测并控制当前网页视频，支持播放、暂停、快进、后退和全屏。
 // @match        *://*/*
 // @run-at       document-start
-// @grant        GM.getValue
-// @grant        GM.setValue
-// @grant        GM.registerMenuCommand
 // ==/UserScript==
 
 (async function () {
   "use strict";
 
-  const POS_KEY = "videoplay-fab-pos";
   const Z = "2147483646";
   const BTN_SIZE = 35;
   const BOTTOM_GAP = 28;
@@ -28,7 +24,6 @@
   const PAGER_HEIGHT = 35;
   const DEFAULT_RIGHT = PAGER_RIGHT_GAP;
   const DEFAULT_BOTTOM = BOTTOM_GAP + PAGER_HEIGHT + STACK_GAP;
-  const CURRENT_LAYOUT_VERSION = '1.0.48';
   const MIN_MAIN_VIDEO_W = 180;
   const MIN_MAIN_VIDEO_H = 120;
   const MIN_MAIN_VIDEO_AREA_RATIO = 0.12;
@@ -682,9 +677,6 @@
   }
 
   // ---------- 按钮（定位/拖动/点击状态机：纯 fixed，与另外三个悬浮脚本统一） ----------
-  const POS_STORE_KEY = '__videoplay_';
-  const POS_LEFT_KEY = 'vpLeftFixedV2';
-  const POS_TOP_KEY = 'vpTopFixedV2';
   let toolbar, backBtn, soundBtn, muteBtn, forwardBtn, fullscreenBtn, prevPlaylistBtn, nextPlaylistBtn;
   let pressedBtn = null, pressMuted = true, pressAction = 'play';
   let savedPosition = null;
@@ -1162,23 +1154,6 @@
     setToolbarVisible(hasVideoForToolbar());
   }
 
-  function getVal(key, def) {
-    try {
-      const v = localStorage.getItem(POS_STORE_KEY + key);
-      if (v === null) return def;
-      const n = Number(v);
-      return Number.isNaN(n) ? v : n;
-    } catch (_) { return def; }
-  }
-
-  function setVal(key, val) {
-    try { localStorage.setItem(POS_STORE_KEY + key, String(val)); } catch (_) {}
-  }
-
-  function removeVal(key) {
-    try { localStorage.removeItem(POS_STORE_KEY + key); } catch (_) {}
-  }
-
   function getViewportBox() {
     const vv = window.visualViewport;
     const layoutWidth = document.documentElement.clientWidth || innerWidth || 0;
@@ -1213,15 +1188,6 @@
     toolbar.style.right = 'auto';
     toolbar.style.bottom = 'auto';
     return true;
-  }
-
-  function migrateDefaultPosition() {
-    if (getVal('layoutVersion', '') === CURRENT_LAYOUT_VERSION) return;
-    removeVal(POS_LEFT_KEY);
-    removeVal(POS_TOP_KEY);
-    removeVal('vpLeft');
-    removeVal('vpTop');
-    setVal('layoutVersion', CURRENT_LAYOUT_VERSION);
   }
 
   function getVisualViewportRect() {
@@ -1262,19 +1228,6 @@
     toolbar.style.right = 'auto';
     toolbar.style.bottom = 'auto';
     toolbar.style.transform = toolbarVisible ? 'scale(1)' : 'scale(0.9)';
-  }
-
-  function resetPosition() {
-    savedPosition = null;
-    removeVal(POS_LEFT_KEY);
-    removeVal(POS_TOP_KEY);
-    removeVal('vpLeft');
-    removeVal('vpTop');
-    applyDefaultPosition();
-
-    // 复位反馈：短暂闪烁一次（不破坏 SVG 图标）
-    toolbar.style.opacity = '0.3';
-    setTimeout(function () { toolbar.style.opacity = toolbarVisible ? '1' : '0'; }, 250);
   }
 
   function getSeekTargetVideo() {
@@ -1356,15 +1309,8 @@
       WebkitUserSelect: 'none',
     });
 
-    const savedLeft = getVal(POS_LEFT_KEY, null);
-    const savedTop = getVal(POS_TOP_KEY, null);
-    if (savedLeft !== null && savedTop !== null) {
-      savedPosition = clampPos(savedLeft, savedTop);
-      applySavedPosition();
-    } else {
-      savedPosition = null;
-      applyDefaultPosition();
-    }
+    savedPosition = null;
+    applyDefaultPosition();
 
     function makeBtn(id) {
       const b = document.createElement('div');
@@ -1444,7 +1390,7 @@
     // 这样 iOS 过度滑动时与新标签页/标签管理/翻页脚本保持同一套 fixed 队形。
     e.currentTarget.setPointerCapture?.(e.pointerId);
 
-    // 长按复原已移除，改为扩展菜单「📍 重置视频播放按钮位置」点击复原。
+    // 拖动位置只在当前页面内临时生效，刷新后恢复固定默认位置。
   }
 
   function onPointerMove(e) {
@@ -1478,8 +1424,6 @@
 
     if (moved) {
       savedPosition = clampPos(parseInt(toolbar.style.left, 10) || 0, parseInt(toolbar.style.top, 10) || 0);
-      setVal(POS_LEFT_KEY, savedPosition.left);
-      setVal(POS_TOP_KEY, savedPosition.top);
     } else {
       if (pressAction === 'seekBack') seekCurrentVideo(-5);
       else if (pressAction === 'seekForward') seekCurrentVideo(5);
@@ -1499,13 +1443,11 @@
   function ensureToolbar() {
     if (isToolbarHealthy() && toolbar === document.getElementById('videoplay-fab')) return true;
     if (!document.body) return false;
-    migrateDefaultPosition();
     buildToolbar();
     return true;
   }
 
   let listenersInstalled = false;
-  let menuRegistered = false;
   let visibilityObserver = null;
   let visibilityRefreshTimer = null;
 
@@ -1612,13 +1554,6 @@
       window.visualViewport?.addEventListener('scroll', stabilizePosition);
     }
     listenersInstalled = true;
-
-    if (!menuRegistered && typeof GM !== 'undefined' && GM.registerMenuCommand) {
-      menuRegistered = true;
-      GM.registerMenuCommand('📍 重置视频播放按钮位置', function () {
-        resetPosition();
-      });
-    }
 
     return true;
   }

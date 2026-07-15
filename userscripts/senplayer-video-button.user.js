@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Senplayer播放
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version 1.0.2
+// @version 1.0.3
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/senplayer-video-button.user.js
 // @description 捕获当前网页视频地址，可一键复制地址或通过 SenPlayer 播放。
@@ -24,7 +24,6 @@
   const SCRIPT = 'SenPlayer';
   const WRAP_ID = '__qiqi_senplayer_button__';
   const PANEL_ID = '__qiqi_senplayer_panel__';
-  const POS_KEY = 'qiqi_senplayer_pos_v8';
   const SENPLAYER_SCHEME = 'senplayer://x-callback-url/play?url={url}';
   const BTN_SIZE = 35;
   const SIDE_GAP = 6;
@@ -447,7 +446,6 @@
     wrap.appendChild(badge);
     wrap.appendChild(status);
     document.body.appendChild(wrap);
-    restorePosition();
     applyNeighborPosition();
     bindDrag();
     updateButton();
@@ -471,8 +469,8 @@
       dragging = false;
       longPressFired = false;
       if (cancelled) return;
-      if (wasDragging) savePosition();
-      else if (!wasLongPress) playCurrent().catch((error) => log('play failed', error));
+      if (wasDragging) return;
+      if (!wasLongPress) playCurrent().catch((error) => log('play failed', error));
     }
 
     button.addEventListener('pointerdown', (e) => {
@@ -516,9 +514,6 @@
 
   function applyNeighborPosition() {
     if (!wrap) return;
-    let saved = null;
-    try { saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch (_) {}
-    if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) return;
     const neighbor = document.getElementById('videoplay-fab');
     if (neighbor) {
       const r = neighbor.getBoundingClientRect();
@@ -535,17 +530,6 @@
     wrap.style.top = 'auto';
     wrap.style.right = `${DEFAULT_RIGHT}px`;
     wrap.style.bottom = `${DEFAULT_BOTTOM}px`;
-  }
-
-  function savePosition() {
-    try { localStorage.setItem(POS_KEY, JSON.stringify({ left: wrap.offsetLeft, top: wrap.offsetTop })); } catch (_) {}
-  }
-
-  function restorePosition() {
-    try {
-      const pos = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
-      if (pos && Number.isFinite(pos.left) && Number.isFinite(pos.top)) setPosition(pos.left, pos.top);
-    } catch (_) {}
   }
 
   function showPanel() {
@@ -584,10 +568,6 @@
         if (!url) return toast('未发现视频地址');
         await copyText(url);
         toast('已复制视频地址');
-      });
-      GM.registerMenuCommand('📍 重置 SenPlayer 按钮位置', () => {
-        try { localStorage.removeItem(POS_KEY); } catch (_) {}
-        if (wrap) { wrap.style.left = ''; wrap.style.top = 'auto'; wrap.style.right = `${DEFAULT_RIGHT}px`; wrap.style.bottom = `${DEFAULT_BOTTOM}px`; applyNeighborPosition(); }
       });
     } catch (e) { log('menu failed', e); }
   }

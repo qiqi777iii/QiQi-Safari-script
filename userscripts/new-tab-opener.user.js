@@ -1,12 +1,11 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.2.0
+// @version      1.2.1
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
 // @match        *://*/*
-// @grant        GM.registerMenuCommand
 // @grant        GM.openInTab
 // @grant        GM.getValue
 // @grant        GM.setValue
@@ -27,7 +26,6 @@
     const DEFAULT_BOTTOM = BOTTOM_GAP + (PAGER_HEIGHT - BTN_SIZE) / 2;
     const FALLBACK_PAGER_WIDTH = 175;
     const DEFAULT_RIGHT = PAGER_RIGHT_GAP + FALLBACK_PAGER_WIDTH + LINK_PAGER_GAP;
-    const CURRENT_LAYOUT_VERSION = '1.1.3-toolbar-v3';
     const GROUP_DRAG_EVENT = 'qiqi-floating-toolbar-group-drag';
     const SHARED_URL_CHANGE_EVENT = 'qiqi:urlchange';
     const SHARED_HISTORY_HOOK_KEY = '__qiqiSharedHistoryHookV1__';
@@ -44,10 +42,10 @@
     const sharedSiteKey = getSharedSiteKey(location.hostname);
     const sharedEnabledKey = SHARED_ENABLED_KEY_PREFIX + sharedSiteKey;
     let toolbar, linkBtn, bodyObserver, toolbarEnsureTimer, neighborResizeObserver, neighborMutationObserver, observedNeighbor;
-    let menuRegistered = false;
     let listenersInstalled = false;
     let lastHref = location.href;
     let urlRefreshTimer = null;
+    // 页面内临时位置；刷新页面后变量会重建并恢复默认位置。
     let savedPosition = null;
     let dragging = false;
     let moved = false;
@@ -627,29 +625,12 @@
         }
     }
 
-    // 纯 fixed 定位：拖动后保存自定义位置；未拖动时横向贴在悬浮翻页左侧，纵向固定 bottom 防止过度滑动错位。
-
-    function resetPosition() {
-        savedPosition = null;
-        removeVal('tbLeft');
-        removeVal('tbTop');
-        applyDefaultPosition();
-
-        linkBtn.style.opacity = '0.3';
-        setTimeout(function () { linkBtn.style.opacity = '1'; }, 250);
-    }
+    // 纯 fixed 定位：允许页面内临时拖动；刷新页面后恢复默认位置。
 
     function migrateBackgroundOpenDefault() {
         if (getVal('backgroundOpenDefaultVersion', '') === '1.1.0') return;
         // 默认值已由共享状态初始化；迁移标记不能覆盖同一主域名其他子域保存的关闭状态。
         setVal('backgroundOpenDefaultVersion', '1.1.0');
-    }
-
-    function migrateDefaultPosition() {
-        if (getVal('layoutVersion', '') === CURRENT_LAYOUT_VERSION) return;
-        removeVal('tbLeft');
-        removeVal('tbTop');
-        setVal('layoutVersion', CURRENT_LAYOUT_VERSION);
     }
 
     function buildToolbar() {
@@ -671,21 +652,8 @@
         isolateFloatingUi(toolbar);
         parent.appendChild(toolbar);
 
-        const pager = document.getElementById(PAGER_ID);
-        const savedLeft = getVal('tbLeft', null);
-        const savedTop = getVal('tbTop', null);
-        if (pager) {
-            savedPosition = null;
-            removeVal('tbLeft');
-            removeVal('tbTop');
-            applyDefaultPosition();
-        } else if (savedLeft !== null && savedTop !== null) {
-            savedPosition = clampPos(savedLeft, savedTop);
-            applySavedPosition();
-        } else {
-            savedPosition = null;
-            applyDefaultPosition();
-        }
+        savedPosition = null;
+        applyDefaultPosition();
 
         updateBtn();
         linkBtn.addEventListener('pointerdown', onPointerDown);
@@ -751,13 +719,9 @@
             const rect = dragPager.getBoundingClientRect();
             dispatchGroupDrag(dragPager, e.type === 'pointercancel' ? 'cancel' : 'end', rect.left, rect.top);
             savedPosition = null;
-            removeVal('tbLeft');
-            removeVal('tbTop');
         } else if (moved) {
-            // 翻页脚本未加载时保存链接按钮的独立位置。
+            // 翻页脚本未加载时仅保留本页面内的临时位置。
             savedPosition = clampPos(parseInt(toolbar.style.left, 10) || 0, parseInt(toolbar.style.top, 10) || 0);
-            setVal('tbLeft', savedPosition.left);
-            setVal('tbTop', savedPosition.top);
         } else if (e.type !== 'pointercancel') {
             enabled = !enabled;
             refresh();
@@ -870,17 +834,9 @@
 
     function init() {
         migrateBackgroundOpenDefault();
-        migrateDefaultPosition();
         if (!ensureToolbar()) return;
         startBodyGuard();
         installPositionListenersOnce();
-        // 扩展菜单「📍 重置链接按钮位置」：清掉拖动记忆，恢复默认。
-        if (!menuRegistered && typeof GM !== 'undefined' && GM.registerMenuCommand) {
-            menuRegistered = true;
-            GM.registerMenuCommand('📍 重置链接按钮位置', function () {
-                resetPosition();
-            });
-        }
         // 悬浮翻页按钮稍晚创建时，由 body guard / pageshow / focus 事件驱动同步位置。
         scheduleVisualBurst();
     }
