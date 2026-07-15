@@ -31,11 +31,11 @@
 
 | 脚本包 | 功能 | 项目链接 |
 | --- | --- | --- |
-| Claude额度 | 查看 Claude 使用额度，包含 App 页面和桌面小组件。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/ClaudeUsage) |
-| Codex额度 | 查看 Codex 使用额度，包含 App 页面和桌面小组件。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/CodexUsage) |
-| IP查询 | 通过 IPLark 查询当前出口或指定 IP 的地址、ISP、类型、国家、使用场景和评分，并提供桌面小组件。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/IPQuery) |
-| 标签页收藏 | 从 Safari 分享表收藏网页并分组管理，支持 WebDAV 同步、历史快照、桌面小组件和配套 Safari 收藏按钮。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/TabsSaver) |
-| 翻译器 | 支持系统翻译、Apple Intelligence、Google 网页翻译、可配置 AI 接口、快捷指令和系统翻译界面。 | [复制链接](https://github.com/qiqi777iii/Scripts/tree/main/scripts/Translator) |
+| Claude额度 | 查看 Claude 使用额度，包含 App 页面和桌面小组件。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/ClaudeUsage) |
+| Codex额度 | 查看 Codex 使用额度，包含 App 页面和桌面小组件。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/CodexUsage) |
+| IP查询 | 通过 IPLark 查询当前出口或指定 IP 的地址、ISP、类型、国家、使用场景和评分，并提供桌面小组件。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/IPQuery) |
+| 标签页收藏 | 从 Safari 分享表收藏网页并分组管理，支持 WebDAV 同步、历史快照、桌面小组件和配套 Safari 收藏按钮。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/TabsSaver) |
+| 翻译器 | 支持系统翻译、Apple Intelligence、Google 网页翻译、可配置 AI 接口、快捷指令和系统翻译界面。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/Translator) |
 
 ## 使用说明
 
