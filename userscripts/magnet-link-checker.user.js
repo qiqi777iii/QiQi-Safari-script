@@ -3,13 +3,12 @@
 // @namespace    https://github.com/qiqi777iii/Scripts
 // @modifiedFrom 磁力验车助手 Beta: https://sleazyfork.org/zh-CN/scripts/565230-%E7%A3%81%E5%8A%9B%E9%AA%8C%E8%BD%A6%E5%8A%A9%E6%89%8B-beta
 // @modifiedFrom 磁力/电驴链接助手: https://sleazyfork.org/zh-CN/scripts/577143-%E7%A3%81%E5%8A%9B-%E7%94%B5%E9%A9%B4%E9%93%BE%E6%8E%A5%E5%8A%A9%E6%89%8B
-// @version      1.0.0
-// @description  识别网页中的磁力链接，提供验车和复制功能。
+// @version      1.0.1
+// @description  识别网页中的磁力、电驴和 FTP 链接，提供验车、复制及下载器推送功能。
 // @icon         https://uxwing.com/wp-content/themes/uxwing/download/seo-marketing/magnet-magnetic-icon.png
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
-// @grant        GM.setClipboard
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -17,79 +16,84 @@
 // @connect      whatslink.info
 // @homepageURL  https://github.com/qiqi777iii/Scripts
 // @supportURL   https://github.com/qiqi777iii/Scripts/issues
-// @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/magnet-link-checker.user.js
-// @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/magnet-link-checker.user.js
 // @run-at       document-start
+// @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/magnet-link-checker.user.js
+// @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/magnet-link-checker.user.js
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    // ================= 1. 基础配置 =================
     const config = {
         enableCopy: GM_getValue('enableCopy', true),
-        enableQb: GM_getValue('enableQb', false),
+        enableQb: GM_getValue('enableQb', true),
+        enableBc: GM_getValue('enableBc', false),
         enable115: GM_getValue('enable115', false),
         enableCheck: GM_getValue('enableCheck', true),
         qbtHost: GM_getValue('qbtHost', 'http://127.0.0.1:8080'),
         qbtUser: GM_getValue('qbtUser', 'admin'),
         qbtPass: GM_getValue('qbtPass', 'adminadmin'),
+        bcHost: GM_getValue('bcHost', 'http://127.0.0.1:8080'),
+        bcUser: GM_getValue('bcUser', 'admin'),
+        bcPass: GM_getValue('bcPass', ''),
+        bcSavePath: GM_getValue('bcSavePath', ''),
         u115Cid: GM_getValue('u115Cid', GM_getValue('u115Uid', '')),
         u115Uid: GM_getValue('u115Uid', '')
     };
 
     GM_registerMenuCommand("⚙️ 脚本综合设置", showSettingsModal);
 
-    // 图标定义
     const ICONS = {
         copy: `<svg viewBox="0 0 24 24" width="18" height="18" fill="#ffffff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`,
         qb: `<svg viewBox="0 0 24 24" width="14" height="14" fill="#0078d4"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>`,
+        bc: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none"><circle cx="12" cy="12" r="10" fill="#1677ff"/><path d="M8 7h5.2c2 0 3.3 1 3.3 2.6 0 1-.5 1.8-1.4 2.2 1.1.4 1.8 1.2 1.8 2.5 0 1.8-1.4 2.9-3.6 2.9H8V7zm2.2 2v2h2.7c.8 0 1.3-.4 1.3-1s-.5-1-1.3-1h-2.7zm0 3.8v2.4h3c.9 0 1.4-.4 1.4-1.2s-.5-1.2-1.5-1.2h-2.9z" fill="#fff"/></svg>`,
         u115: `<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="11" fill="#2777F8"/><text x="12" y="17" font-family="Arial" font-size="12" font-weight="900" fill="white" text-anchor="middle">5</text></svg>`,
         car: `<svg t="1782891044507" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="25" height="25"><path d="M459.082278 628.869754c0-97.614202 53.396117-182.580339 132.456754-227.7941L196.27678 401.075655l51.250244-134.49825c6.407943-19.208481 16.013719-33.124422 38.479383-33.343409l358.796736 0c22.376637 0.218988 31.994692 14.134929 38.400588 33.343409l38.059827 99.892081c0.082888 0 0.150426-0.016373 0.230244-0.016373 25.128307 0 49.349965 3.734044 72.360028 10.344602l-56.94392-145.453766c-12.811794-33.124422-40.556695-61.418838-92.926436-61.418838L286.748305 169.925111c-52.303226 0-80.07678 28.293393-92.846618 61.418838l-68.088748 173.832094c-27.01733 3.423983-74.775031 34.784224-74.775031 94.16873l0 221.170239 76.56991 0 0 55.061037c0 86.99433 103.636359 85.99149 103.636359 0l0-55.061037 244.61316 0c-10.66899-28.565593-16.781198-59.356876-16.781198-91.647303L459.082278 628.867708zM217.719138 586.586742c-32.42141 0-58.751079-26.79118-58.751079-59.886949 0-33.126468 26.325575-59.912531 58.751079-59.912531 32.423457 0 58.72345 26.79118 58.72345 59.912531C276.442588 559.800679 250.141572 586.586742 217.719138 586.586742L217.719138 586.586742zM721.520409 403.63699c-124.170021 0-225.240951 101.022835-225.240951 225.242997 0 124.193557 101.071953 225.192855 225.240951 225.192855 124.190487-0.004093 225.191832-100.999298 225.191832-225.192855C946.711218 504.658801 845.710896 403.63699 721.520409 403.63699L721.520409 403.63699zM721.520409 801.061488c-94.952582 0-172.182524-77.228919-172.182524-172.181501 0-94.949512 77.229942-172.151825 172.182524-172.151825 94.978165 0 172.155918 77.202313 172.155918 172.151825C893.681444 723.83257 816.498574 801.061488 721.520409 801.061488L721.520409 801.061488zM721.143832 746.494709" fill="#ffffff"></path><path d="M944.055738 841.736886c-6.432503 0-12.897751-2.136663-18.268062-6.523577l-60.141752-49.182143c-12.350283-10.093892-14.174837-28.29544-4.075829-40.646746 10.100032-12.347213 28.296463-14.174837 40.648792-4.074805l60.142775 49.180096c12.347213 10.094916 14.173814 28.296463 4.074805 40.648792C960.726419 838.119499 952.42229 841.736886 944.055738 841.736886z" fill="#ffffff"></path></svg>`,
         checkActive: `<svg viewBox="0 0 24 24" width="14" height="14" fill="#28a745"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`
     };
 
-    // ================= 2. 注入CSS（新增链接样式）=================
     const style = document.createElement('style');
     style.innerHTML = `
         .mag-btn-group {
             display: inline-flex !important;
             vertical-align: middle !important;
-            margin-left: 4px !important;
-            gap: 3px !important;
-            background: transparent !important;
-            padding: 0 !important;
-            border-radius: 0 !important;
-            border: 0 !important;
-            box-shadow: none !important;
+            margin-left: 6px !important;
+            gap: 4px !important;
+            background: #f8f9fa !important;
+            padding: 2px 3px !important;
+            border-radius: 6px !important;
+            border: 1px solid #dee2e6 !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
             transition: box-shadow 0.2s;
         }
         .mag-btn-group:hover {
-            box-shadow: none !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08) !important;
         }
         .mag-btn {
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            width: 22px !important;
-            height: 24px !important;
-            background: transparent !important;
-            border: 0 !important;
+            width: 24px !important;
+            height: 20px !important;
+            background: #ffffff !important;
+            border: 1px solid #ced4da !important;
             border-radius: 5px !important;
             cursor: pointer !important;
             transition: all 0.2s ease !important;
-            box-shadow: none !important;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.03) !important;
             position: relative;
             overflow: hidden;
         }
         .mag-btn:hover {
-            background: transparent !important;
-            transform: none;
-            box-shadow: none !important;
+            background: #e9ecef !important;
+            border-color: #0078d4 !important;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 3px rgba(0,120,212,0.15) !important;
         }
         .mag-btn.active {
-            background: rgba(34,197,94,.12) !important;
-            box-shadow: none !important;
+            border-color: #28a745 !important;
+            background: #f0fff4 !important;
+            box-shadow: 0 0 0 2px rgba(40,167,69,0.2) !important;
         }
         /* 涟漪效果 */
         .mag-btn::after {
@@ -117,51 +121,25 @@
         .mag-btn.active svg {
             animation: popIn 0.2s ease-out;
         }
-        .mag-btn.mag-check-btn {
-            width: 46px !important;
-            height: 34px !important;
-            background: #6a00d4 !important;
-            border: 0 !important;
-            border-radius: 5px !important;
-            box-shadow: 0 1px 4px rgba(106,0,212,.28) !important;
+        #jav-nong-table .nong-copy,
+        #jav-nong-table .nong-check,
+        #nong-table-new .nong-copy,
+        #nong-table-new .nong-check {
+            display: none !important;
+            pointer-events: none !important;
         }
-        .mag-btn.mag-check-btn:hover {
-            background: #7b18ee !important;
-            box-shadow: 0 2px 6px rgba(106,0,212,.36) !important;
+        #jav-nong-table .nong-115-head,
+        #jav-nong-table .nong-115-cell,
+        #nong-table-new .nong-115-head,
+        #nong-table-new .nong-115-cell {
+            display: none !important;
         }
-        .mag-btn.mag-copy-btn {
-            width: 46px !important;
-            height: 34px !important;
-            background: #2563eb !important;
-            border: 0 !important;
-            border-radius: 5px !important;
-            opacity: 1;
-            box-shadow: 0 1px 4px rgba(37,99,235,.25) !important;
-        }
-        .mag-btn.mag-copy-btn:hover {
-            background: #1d4ed8 !important;
-            box-shadow: 0 2px 6px rgba(37,99,235,.34) !important;
-        }
-        .mag-btn.mag-copy-btn.active {
-            background: #2563eb !important;
-            box-shadow: 0 0 0 2px rgba(37,99,235,.22) !important;
-        }
-        .mag-btn.mag-copy-btn svg {
-            width: 25px !important;
-            height: 25px !important;
-            display: block;
-        }
-        .mag-btn.mag-check-btn svg {
-            width: 33px !important;
-            height: 33px !important;
-            display: block;
-        }
-        #jav-nong-table td:nth-child(3),
+        #jav-nong-table .nong-op-cell,
         #nong-table-new td:nth-child(3) {
             min-width: 88px;
             text-align: center;
         }
-        #jav-nong-table td:nth-child(3):not(.mag-laosiji-ready-cell)::after,
+        #jav-nong-table .nong-op-cell:not(.mag-laosiji-ready-cell)::after,
         #nong-table-new td:nth-child(3):not(.mag-laosiji-ready-cell)::after {
             content: '';
             display: inline-block;
@@ -196,27 +174,10 @@
             height: 20px !important;
             border-radius: 5px !important;
         }
-        #jav-nong-table .mag-btn.mag-check-btn,
-        #nong-table-new .mag-btn.mag-check-btn,
-        #jav-nong-table .mag-btn.mag-copy-btn,
-        #nong-table-new .mag-btn.mag-copy-btn {
-            width: 46px !important;
-            height: 34px !important;
-        }
         #jav-nong-table .mag-btn svg,
         #nong-table-new .mag-btn svg {
             width: 13px !important;
             height: 13px !important;
-        }
-        #jav-nong-table .mag-btn.mag-check-btn svg,
-        #nong-table-new .mag-btn.mag-check-btn svg {
-            width: 33px !important;
-            height: 33px !important;
-        }
-        #jav-nong-table .mag-btn.mag-copy-btn svg,
-        #nong-table-new .mag-btn.mag-copy-btn svg {
-            width: 25px !important;
-            height: 25px !important;
         }
         #jav-nong-table td,
         #nong-table-new td {
@@ -277,16 +238,22 @@
         .whatslink-thumb { border: 2px solid #e2e8f0; border-radius: 9px; padding: 0; overflow: hidden; background: #fff; cursor: pointer; aspect-ratio: 16 / 9; box-shadow: 0 6px 14px rgba(15,23,42,.08); }
         .whatslink-thumb.active { border-color: #db2777; box-shadow: 0 8px 18px rgba(219,39,119,.22); }
         .whatslink-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .whatslink-info { min-width: 0; padding: 18px 16px; background: #f8fafc; overflow: auto; color: #172033; display: flex; flex-direction: column; }
-        .whatslink-head { position: sticky; top: 0; z-index: 2; margin: -18px -16px 16px; padding: 18px 16px 16px; background: rgba(248,250,252,.94); border-bottom: 1px solid #e2e8f0; backdrop-filter: blur(10px); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-        .whatslink-kicker { color: #db2777; font-size: 13px; font-weight: 800; margin-bottom: 7px; }
-        .whatslink-title { margin: 0; font-size: 24px; line-height: 1.2; color: #111827; word-break: break-word; }
-        .whatslink-close { width: 34px; height: 34px; border: 0; border-radius: 8px; color: #64748b; background: transparent; cursor: pointer; font-size: 27px; line-height: 1; }
-        .whatslink-tag { display: inline-flex; align-items: center; min-height: 25px; padding: 0 10px; margin-top: 10px; border-radius: 999px; background: #ecfdf5; color: #047857; font-size: 13px; font-weight: 700; }
-        .whatslink-meta { display: grid; grid-template-columns: 1fr; gap: 13px; margin: 18px 0 0; align-content: start; }
-        .whatslink-metric { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; padding: 13px 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; box-shadow: 0 8px 20px rgba(15,23,42,.06); }
-        .whatslink-metric b { color: #172033; font-size: 15px; order: 2; }
-        .whatslink-metric span { color: #64748b; font-size: 13px; order: 1; }
+        .whatslink-info { min-width: 0; padding: 14px; background: #f8fafc; overflow: auto; color: #172033; }
+        .whatslink-head { position: sticky; top: 0; z-index: 2; margin: -14px -14px 12px; padding: 13px 14px; background: rgba(248,250,252,.94); border-bottom: 1px solid #e2e8f0; backdrop-filter: blur(10px); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .whatslink-kicker { color: #db2777; font-size: 12px; font-weight: 800; margin-bottom: 5px; }
+        .whatslink-title { margin: 0; font-size: 21px; line-height: 1.18; color: #111827; word-break: break-word; }
+        .whatslink-close { width: 32px; height: 32px; border: 0; border-radius: 8px; color: #64748b; background: transparent; cursor: pointer; font-size: 25px; line-height: 1; }
+        .whatslink-tag { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; margin-top: 8px; border-radius: 999px; background: #ecfdf5; color: #047857; font-size: 12px; font-weight: 700; }
+        .whatslink-meta { display: grid; grid-template-columns: 1fr; gap: 7px; margin: 10px 0 12px; }
+        .whatslink-metric { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 11px; background: #fff; box-shadow: 0 8px 20px rgba(15,23,42,.06); }
+        .whatslink-metric b { color: #172033; font-size: 13px; order: 2; }
+        .whatslink-metric span { color: #64748b; font-size: 12px; order: 1; }
+        .whatslink-section, .whatslink-summary-card { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; padding: 10px; box-shadow: 0 8px 20px rgba(15,23,42,.06); }
+        .whatslink-section h3 { margin: 0 0 8px; color: #be185d; font-size: 12px; }
+        .whatslink-magnet { word-break: break-all; max-height: 86px; overflow: auto; padding: 9px; border-radius: 8px; background: #f6f8fb; color: #334155; font-family: ui-monospace,SFMono-Regular,Consolas,monospace; font-size: 12px; }
+        .whatslink-summary { display: grid; gap: 8px; margin-top: 10px; }
+        .whatslink-summary-card strong { display: block; margin-bottom: 4px; color: #111827; font-size: 12px; }
+        .whatslink-summary-card p { margin: 0; color: #64748b; font-size: 11px; line-height: 1.45; }
         .whatslink-loading { padding: 28px; text-align: center; color: #475569; font-size: 14px; }
         @media (max-width: 768px) {
             .whatslink-overlay { padding: 10px; }
@@ -298,13 +265,12 @@
         /* 深色模式 */
         @media (prefers-color-scheme: dark) {
             .mag-btn-group {
-                background: transparent !important;
-                border: 0 !important;
-                box-shadow: none !important;
+                background: #2d2d2d !important;
+                border-color: #404040 !important;
             }
             .mag-btn {
-                background: transparent !important;
-                border-color: transparent !important;
+                background: #3a3a3a !important;
+                border-color: #555 !important;
             }
             .mag-btn:hover {
                 background: #4a4a4a !important;
@@ -314,93 +280,125 @@
                 background: #1e3a2a !important;
                 border-color: #34ce57 !important;
             }
-            .mag-btn.mag-check-btn {
-                background: #6a00d4 !important;
-                border: 0 !important;
-                box-shadow: 0 1px 4px rgba(106,0,212,.28) !important;
-            }
-            .mag-btn.mag-check-btn:hover {
-                background: #7b18ee !important;
-                box-shadow: 0 2px 6px rgba(106,0,212,.36) !important;
-            }
-            .mag-btn.mag-copy-btn,
-            .mag-btn.mag-copy-btn.active {
-                background: #2563eb !important;
-                border: 0 !important;
-                box-shadow: 0 1px 4px rgba(37,99,235,.25) !important;
-            }
-            .mag-btn.mag-copy-btn:hover {
-                background: #1d4ed8 !important;
-                box-shadow: 0 2px 6px rgba(37,99,235,.34) !important;
-            }
             .magnet-link { color: #66b0ff; }
             .ed2k-link { color: #ff79b0; }
             .ftp-link { color: #ffd966; }
             .http-link { color: #6fcf97; }
         }
+
+        /* 保留 qiqi777iii 修改版的按钮展示样式 */
+        .mag-btn-group {
+            margin-left: 4px !important;
+            gap: 3px !important;
+            padding: 0 !important;
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+        }
+        .mag-btn-group:hover { box-shadow: none !important; }
+        .mag-btn {
+            width: 22px !important;
+            height: 24px !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+        }
+        .mag-btn:hover {
+            background: transparent !important;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+        .mag-btn.active {
+            background: rgba(34,197,94,.12) !important;
+            box-shadow: none !important;
+        }
+        .mag-btn.mag-check-btn {
+            width: 46px !important;
+            height: 34px !important;
+            background: #6a00d4 !important;
+            border: 0 !important;
+            border-radius: 5px !important;
+            box-shadow: 0 1px 4px rgba(106,0,212,.28) !important;
+        }
+        .mag-btn.mag-check-btn:hover {
+            background: #7b18ee !important;
+            box-shadow: 0 2px 6px rgba(106,0,212,.36) !important;
+        }
+        .mag-btn.mag-copy-btn,
+        .mag-btn.mag-copy-btn.active {
+            width: 46px !important;
+            height: 34px !important;
+            background: #2563eb !important;
+            border: 0 !important;
+            border-radius: 5px !important;
+            box-shadow: 0 1px 4px rgba(37,99,235,.25) !important;
+        }
+        .mag-btn.mag-copy-btn:hover {
+            background: #1d4ed8 !important;
+            box-shadow: 0 2px 6px rgba(37,99,235,.34) !important;
+        }
+        .mag-btn.mag-copy-btn.active {
+            box-shadow: 0 0 0 2px rgba(37,99,235,.22) !important;
+        }
+        .mag-btn.mag-copy-btn svg {
+            width: 25px !important;
+            height: 25px !important;
+            display: block;
+        }
+        .mag-btn.mag-check-btn svg {
+            width: 33px !important;
+            height: 33px !important;
+            display: block;
+        }
+        #jav-nong-table .mag-btn.mag-copy-btn,
+        #nong-table-new .mag-btn.mag-copy-btn,
+        #jav-nong-table .mag-btn.mag-check-btn,
+        #nong-table-new .mag-btn.mag-check-btn {
+            width: 46px !important;
+            height: 34px !important;
+        }
+        #jav-nong-table .mag-btn.mag-copy-btn svg,
+        #nong-table-new .mag-btn.mag-copy-btn svg {
+            width: 25px !important;
+            height: 25px !important;
+        }
+        #jav-nong-table .mag-btn.mag-check-btn svg,
+        #nong-table-new .mag-btn.mag-check-btn svg {
+            width: 33px !important;
+            height: 33px !important;
+        }
+        @media (prefers-color-scheme: dark) {
+            .mag-btn-group {
+                background: transparent !important;
+                border: 0 !important;
+                box-shadow: none !important;
+            }
+            .mag-btn {
+                background: transparent !important;
+                border-color: transparent !important;
+            }
+            .mag-btn.mag-check-btn {
+                background: #6a00d4 !important;
+                border: 0 !important;
+            }
+            .mag-btn.mag-check-btn:hover { background: #7b18ee !important; }
+            .mag-btn.mag-copy-btn,
+            .mag-btn.mag-copy-btn.active {
+                background: #2563eb !important;
+                border: 0 !important;
+            }
+            .mag-btn.mag-copy-btn:hover { background: #1d4ed8 !important; }
+        }
     `;
     (document.head || document.documentElement).appendChild(style);
 
-    // ================= 3. 工具函数 =================
     function showToast(msg, success = true) {
         const toast = document.createElement('div');
         toast.style.cssText = `position:fixed;bottom:50px;right:30px;background:${success?'#28a745':'#dc3545'};color:white;padding:10px 20px;border-radius:8px;z-index:100000;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);`;
         toast.textContent = msg;
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 2000);
-    }
-
-    function copyTextBySelection(text) {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.autocapitalize = 'off';
-        textarea.autocomplete = 'off';
-        textarea.autocorrect = 'off';
-        textarea.spellcheck = false;
-        textarea.style.cssText = 'position:fixed;top:0;left:0;width:2px;height:2px;padding:0;border:0;font-size:16px;background:#fff;color:#000;opacity:.01;z-index:2147483647;';
-        document.body.appendChild(textarea);
-        try {
-            textarea.focus();
-            textarea.select();
-            textarea.setSelectionRange(0, textarea.value.length);
-            const selection = window.getSelection && window.getSelection();
-            if (selection) {
-                selection.removeAllRanges();
-                const range = document.createRange();
-                range.selectNodeContents(textarea);
-                selection.addRange(range);
-                textarea.setSelectionRange(0, textarea.value.length);
-            }
-            return document.execCommand('copy');
-        } finally {
-            textarea.parentNode.removeChild(textarea);
-        }
-    }
-
-    function copyText(text) {
-        if (!text) return false;
-        try {
-            if (copyTextBySelection(text)) return true;
-        } catch (_) {}
-        try {
-            if (typeof GM_setClipboard === 'function') {
-                GM_setClipboard(text);
-                return true;
-            }
-        } catch (_) {}
-        try {
-            if (typeof GM !== 'undefined' && GM.setClipboard) {
-                GM.setClipboard(text, 'text');
-                return true;
-            }
-        } catch (_) {}
-        try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text);
-                return true;
-            }
-        } catch (_) {}
-        return false;
     }
 
     function setBtnActive(clickedBtn, group) {
@@ -413,13 +411,6 @@
     }
 
     function highlightBtn(btn) {
-        if (btn.classList.contains('mag-check-btn')) {
-            btn.style.boxShadow = '0 0 0 3px rgba(106,0,212,.24)';
-            setTimeout(() => {
-                btn.style.boxShadow = '';
-            }, 250);
-            return;
-        }
         const originalBg = btn.style.backgroundColor;
         btn.style.backgroundColor = '#ffb74d';
         btn.style.transition = 'background-color 0.2s';
@@ -440,7 +431,6 @@
         return otherSelectors.some(sel => parent.querySelector(sel));
     }
 
-    // ================= 4. 番号提取 =================
     function extractCodeFromText(text) {
         if (!text) return null;
 
@@ -471,8 +461,6 @@
         return null;
     }
 
-    // ================= 5. 图片轮播函数 =================
-    // ================= 5. ???? =================
     function GM_Request({ method = "GET", url, data = null, headers = {} }) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -567,11 +555,19 @@
                     <div class="whatslink-metric"><b>${shots.length}</b><span>截图数量</span></div>
                     <div class="whatslink-metric"><b>${payload?.error ? '异常' : '无错误'}</b><span>接口状态</span></div>
                 </div>
+                <div class="whatslink-section">
+                    <h3>磁力链接</h3>
+                    <div class="whatslink-magnet"></div>
+                </div>
+                <div class="whatslink-summary">
+                    <div class="whatslink-summary-card"><strong>验车结论</strong><p>${shots.length ? 'WhatsLink 已返回截图，优先用左侧大图确认内容是否匹配番号。' : '当前没有截图，建议结合资源名称、大小和文件数量判断。'}</p></div>
+                </div>
             </aside>`;
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         modal.querySelector('.whatslink-title').textContent = payload?.name || '未知资源';
         modal.querySelector('.whatslink-tag').textContent = resourceType;
+        modal.querySelector('.whatslink-magnet').textContent = magnet;
         const hero = modal.querySelector('.whatslink-hero');
         const thumbs = modal.querySelector('.whatslink-thumbs');
         const counter = modal.querySelector('.whatslink-counter');
@@ -613,7 +609,6 @@
         showWhatslinkModal(info, link);
     }
 
-    // ================= 7. 精简磁力链接 =================
     function simplifyMagnetLink(link) {
         if (!link.startsWith('magnet:?')) return link;
         try {
@@ -654,12 +649,11 @@
         }
     }
 
-    // ================= 8. 按钮组构建 =================
     function createBtnGroup(link) {
+        link = normalizeSupportedLink(link);
         const group = document.createElement('span');
         group.className = 'mag-btn-group';
-        group.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
-        group.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+        group.onclick = (e) => { e.preventDefault(); e.stopPropagation(); };
 
         const addBtn = (type, icon, title, action) => {
             const btn = document.createElement('div');
@@ -669,61 +663,45 @@
             btn.innerHTML = icon;
             btn.title = title;
             btn.dataset.origIcon = icon;
-
-            let touchedAt = 0;
-            const runAction = (e) => {
-                e.preventDefault();
+            btn.onclick = (e) => {
                 e.stopPropagation();
                 if (type === 'check') {
                     action(btn);
-                } else if (action()) {
+                } else {
                     setBtnActive(btn, group);
+                    action();
                 }
             };
-            btn.addEventListener('click', (e) => {
-                if (Date.now() - touchedAt < 700) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    return;
-                }
-                runAction(e);
-            });
-            btn.addEventListener('touchend', (e) => {
-                touchedAt = Date.now();
-                runAction(e);
-            }, { passive: false });
             group.appendChild(btn);
         };
 
-        if (config.enableCheck) {
-            addBtn('check', ICONS.car, '验车', (btn) => handleCheckCar(link, btn));
-        }
         if (config.enableCopy) {
             addBtn('copy', ICONS.copy, '复制链接', () => {
                 const processedLink = simplifyMagnetLink(link);
-                const copied = copyText(processedLink);
-                if (!copied) {
-                    showToast('❌ 复制失败，请长按链接复制', false);
-                    return false;
-                }
+                GM_setClipboard(processedLink, 'text');
                 if (processedLink !== link) {
                     showToast('📋 精简链接已复制');
                 } else {
                     showToast('📋 链接已复制');
                 }
-                return true;
             });
         }
         if (config.enableQb) {
             addBtn('qb', ICONS.qb, '推送至 qB', () => pushToQb(link));
         }
+        if (config.enableBc) {
+            addBtn('bc', ICONS.bc, '推送至 BitComet', () => pushToBitComet(link));
+        }
         if (config.enable115) {
             addBtn('115', ICONS.u115, '115 离线', () => pushTo115(link));
         }
+        if (config.enableCheck) {
+            addBtn('check', ICONS.car, '验车', (btn) => handleCheckCar(link, btn));
+        }
+
         return group;
     }
 
-    // ================= 9. 推送函数 =================
     function pushToQb(link) {
         GM_xmlhttpRequest({
             method: "POST",
@@ -760,6 +738,63 @@
 
     function get115Cid() {
         return (config.u115Cid || config.u115Uid || '').trim();
+    }
+
+    function base64EncodeUtf8(text) {
+        if (typeof TextEncoder !== 'undefined') {
+            const bytes = new TextEncoder().encode(text);
+            let binary = '';
+            bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+            return btoa(binary);
+        }
+        return btoa(unescape(encodeURIComponent(text)));
+    }
+
+    function getBitCometAuthHeaders(contentType) {
+        const headers = {};
+        if (contentType) headers['Content-Type'] = contentType;
+        const user = (config.bcUser || '').trim();
+        const pass = config.bcPass || '';
+        if (user || pass) {
+            headers.Authorization = `Basic ${base64EncodeUtf8(`${user}:${pass}`)}`;
+        }
+        return headers;
+    }
+
+    function normalizeHost(host) {
+        return String(host || '').trim().replace(/\/+$/, '');
+    }
+
+    function pushToBitComet(link) {
+        const host = normalizeHost(config.bcHost);
+        if (!host) {
+            showToast('❌ BitComet 地址不能为空', false);
+            return;
+        }
+
+        const savePath = (config.bcSavePath || '').trim();
+        const data = `url=${encodeURIComponent(link)}${savePath ? `&save_path=${encodeURIComponent(savePath)}` : ''}`;
+
+        GM_xmlhttpRequest({
+            method: "POST",
+            url: `${host}/panel/task_add_magnet_result`,
+            data,
+            headers: getBitCometAuthHeaders('application/x-www-form-urlencoded'),
+            onload: (res) => {
+                const text = (res.responseText || '').trim();
+                const failed = /Add task failed|failed|error|失败|错误/i.test(text);
+                const success = /Add task succeed|succeeded|success|成功/i.test(text);
+
+                if (res.status === 200 && success && !failed) {
+                    showToast('✅ 已推送到 BitComet');
+                } else {
+                    let errorMsg = text || `HTTP ${res.status}`;
+                    if (errorMsg.length > 50) errorMsg = errorMsg.substring(0, 50) + '...';
+                    showToast(`❌ BitComet 推送失败: ${errorMsg}`, false);
+                }
+            },
+            onerror: () => showToast('❌ 无法连接到 BitComet，请检查地址', false)
+        });
     }
 
     function pushTo115(link) {
@@ -822,46 +857,138 @@
         });
     }
 
-    // ================= 10. 特殊处理：laosiji 表格（兼容新旧版本）=================
-    function handleLaosijiTable(root = document.body) {
-        if (!root) return;
-        const elementRoot = root.nodeType === Node.ELEMENT_NODE ? root : root.parentElement;
-        if (!elementRoot) return;
-        const rowSelector = 'tr[data-maglink], tr.jav-nong-row:not(.nong-head-row)';
-        const tableSelector = '#jav-nong-table, #nong-table-new';
-        const rows = new Set();
-        const addRow = row => {
-            if (!(row instanceof HTMLTableRowElement) || !row.matches(rowSelector) || !row.closest(tableSelector)) return;
-            rows.add(row);
-        };
-        addRow(elementRoot.closest('tr'));
-        if (elementRoot.matches(rowSelector)) addRow(elementRoot);
-        elementRoot.querySelectorAll?.(rowSelector).forEach(addRow);
+    function handleLaosijiTable() {
+        const table = document.getElementById('jav-nong-table') || document.getElementById('nong-table-new');
+        if (!table) return;
+
+        table.querySelectorAll('.nong-115-head, .nong-115-cell').forEach(el => {
+            el.style.display = 'none';
+        });
+
+        const rows = table.querySelectorAll('tr[data-maglink], tr.jav-nong-row:not(.nong-head-row)');
         rows.forEach(row => {
             const cells = row.cells;
             if (cells.length < 3) return;
-            const operationCell = cells[2];
-            const magnetLink = row.getAttribute('data-maglink') || row.querySelector('td:first-child a[href^="magnet:"]')?.href;
+            const operationCell = row.querySelector('.nong-op-cell') || cells[2];
+            if (!operationCell) return;
+
+            const magnetLink = row.getAttribute('data-maglink')
+                || row.querySelector('td:first-child a[href^="magnet:"]')?.href;
             if (!magnetLink) return;
-            if (!operationCell.querySelector('.mag-btn-group')) operationCell.appendChild(createBtnGroup(magnetLink));
+
+            operationCell.querySelectorAll('.nong-copy, .nong-check').forEach(el => el.remove());
+
+            if (operationCell.querySelector('.mag-btn-group')) {
+                operationCell.classList.add('mag-laosiji-ready-cell');
+                return;
+            }
+
+            const btnGroup = createBtnGroup(magnetLink);
+            operationCell.appendChild(btnGroup);
             operationCell.classList.add('mag-laosiji-ready-cell');
         });
     }
 
-    // ================= 11. 文本链接处理（支持磁力、ed2k、ftp、纯哈希）=================
     const linkRegexes = {
         magnet: /magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}[^\s<>"]*/g,
-        ed2k: /ed2k:\/\/\|file\|[^|]+\|[^|]+\|[^|]+\|/g,
+        ed2k: /ed2k:\/\/\|file\|[^|]+\|\d+\|[a-fA-F0-9]{32}\|\/?/gi,
         ftp: /ftp:\/\/[^\s]+/g
     };
 
+    function decodeLinkValue(value) {
+        if (!value) return '';
+        try {
+            return decodeURIComponent(value);
+        } catch (_) {
+            return value;
+        }
+    }
+
+    function extractEd2kLink(value) {
+        const decoded = decodeLinkValue(value || '');
+        const match = decoded.match(/ed2k:\/\/\|file\|[^|]+\|\d+\|[a-fA-F0-9]{32}\|\/?/i);
+        return match ? match[0] : null;
+    }
+
+    function normalizeSupportedLink(link) {
+        if (!link) return link;
+        if (/^ed2k:/i.test(link)) {
+            const decoded = decodeLinkValue(link);
+            return extractEd2kLink(decoded) || decoded;
+        }
+        return link;
+    }
+
+    function collectFollowingTextNodes(startNode, maxChars = 4096) {
+        const chunks = [];
+        let text = '';
+        let node = startNode.nextSibling;
+
+        while (node && text.length < maxChars) {
+            if (node.nodeType !== Node.TEXT_NODE) break;
+            const value = node.nodeValue || '';
+            chunks.push({ node, value });
+            text += value;
+            if (extractEd2kLink(text)) break;
+            node = node.nextSibling;
+        }
+
+        return { text, chunks };
+    }
+
+    function consumeTextChunks(chunks, count) {
+        let remaining = count;
+        for (const chunk of chunks) {
+            if (remaining <= 0) break;
+            if (remaining >= chunk.value.length) {
+                remaining -= chunk.value.length;
+                chunk.node.remove();
+            } else {
+                chunk.node.nodeValue = chunk.value.slice(remaining);
+                remaining = 0;
+            }
+        }
+    }
+
+    function repairSplitEd2kAnchor(anchor) {
+        const prefixCandidates = [
+            anchor.textContent,
+            anchor.getAttribute('href'),
+            anchor.href
+        ].map(value => decodeLinkValue(value || '').trim()).filter(value => /^ed2k:\/\//i.test(value));
+
+        for (const prefix of prefixCandidates) {
+            const directLink = extractEd2kLink(prefix);
+            if (directLink) {
+                anchor.textContent = directLink;
+                anchor.setAttribute('href', directLink);
+                anchor.dataset.magRawLink = directLink;
+                return directLink;
+            }
+
+            const { text, chunks } = collectFollowingTextNodes(anchor);
+            const fullLink = extractEd2kLink(prefix + text);
+            if (fullLink && fullLink.startsWith(prefix)) {
+                anchor.textContent = fullLink;
+                anchor.setAttribute('href', fullLink);
+                anchor.dataset.magRawLink = fullLink;
+                consumeTextChunks(chunks, fullLink.length - prefix.length);
+                return fullLink;
+            }
+        }
+
+        return null;
+    }
+
     function createStyledLink(url, type) {
         const a = document.createElement('a');
-        a.href = url;
+        const normalizedUrl = normalizeSupportedLink(url);
+        a.setAttribute('href', normalizedUrl);
         a.className = `${type}-link`;
-        a.textContent = url;
+        a.textContent = normalizedUrl;
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
+        a.dataset.magRawLink = normalizedUrl;
         return a;
     }
 
@@ -870,13 +997,13 @@
         if (!parent) return null;
         const content = node.nodeValue;
 
-        const combinedRegex = /(magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}[^\s<>"]*|ed2k:\/\/\|file\|[^|]+\|[^|]+\|[^|]+\||ftp:\/\/[^\s]+)/gi;
+        const combinedRegex = /(magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}[^\s<>"]*|ed2k:\/\/\|file\|[^|]+\|\d+\|[a-fA-F0-9]{32}\|\/?|ftp:\/\/[^\s]+)/gi;
         if (!combinedRegex.test(content)) return null;
         combinedRegex.lastIndex = 0;
 
         const fragment = document.createDocumentFragment();
         let lastIndex = 0;
-        let match; // 声明变量
+        let match;
 
         while ((match = combinedRegex.exec(content)) !== null) {
             if (match.index > lastIndex) {
@@ -888,10 +1015,9 @@
             else if (url.startsWith('ed2k:')) type = 'ed2k';
             else if (url.startsWith('ftp:')) type = 'ftp';
             const link = createStyledLink(url, type);
-            link.dataset.magProcessed = 'true'; // 标记已处理
+            link.dataset.magProcessed = 'true';
             fragment.appendChild(link);
 
-            // 立即添加按钮组
             const btnGroup = createBtnGroup(url);
             fragment.appendChild(btnGroup);
 
@@ -905,67 +1031,55 @@
         return fragment;
     }
 
-    // ================= 12. 页面扫描（增量子树）=================
-    const SCRIPT_UI_SELECTOR = '.mag-btn-group, .whatslink-overlay, [data-mag-ui], [data-mag-processed], [data-qiqi-ui], [data-sav-ui], [data-qts-ui], [id^="qiqi-"], [id^="sav-"], [id^="qts-"]';
-    const BLOCKED_CONTENT_SELECTOR = `script, style, textarea, input, select, option, form, button, pre, code, [contenteditable]:not([contenteditable="false"]), #jav-nong-table, #nong-table-new, ${SCRIPT_UI_SELECTOR}`;
+    function processPage() {
+        handleLaosijiTable();
 
-    function scanElement(node) {
-        if (!node) return null;
-        return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
-    }
+        const processedHrefs = new Set();
+        document.querySelectorAll('a[data-mag-processed="true"]').forEach(a => {
+            if (a.href) processedHrefs.add(a.href);
+        });
 
-    function isInsideScriptUI(node) {
-        return Boolean(scanElement(node)?.closest(SCRIPT_UI_SELECTOR));
-    }
-
-    function isBlocked(node, includeAnchor = false) {
-        const element = scanElement(node);
-        return !element || Boolean(element.closest(includeAnchor ? `${BLOCKED_CONTENT_SELECTOR}, a` : BLOCKED_CONTENT_SELECTOR));
-    }
-
-    function processPage(root) {
-        if (!root || !root.isConnected) return;
-        handleLaosijiTable(root);
-        if (isBlocked(root)) return;
-
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        let node;
         const textNodes = [];
-        if (root.nodeType === Node.TEXT_NODE) {
-            if (!isBlocked(root, true)) textNodes.push(root);
-        } else if (root.nodeType === Node.ELEMENT_NODE) {
-            const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-                acceptNode(node) {
-                    if (node.nodeType === Node.ELEMENT_NODE) return isBlocked(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
-                    return isBlocked(node, true) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-                }
-            });
-            let node;
-            while ((node = walker.nextNode())) if (node.nodeType === Node.TEXT_NODE) textNodes.push(node);
+        while (node = walker.nextNode()) {
+            const parent = node.parentElement;
+            if (!parent || parent.closest('#jav-nong-table') || parent.closest('#nong-table-new') || parent.closest('.whatslink-modal') || parent.closest('.mag-btn-group') || parent.closest('[data-mag-processed]') ||
+                ['SCRIPT', 'STYLE', 'A', 'TEXTAREA', 'INPUT'].includes(parent.tagName)) continue;
+            textNodes.push(node);
         }
 
         textNodes.forEach(node => {
-            if (!node.isConnected || !node.parentNode) return;
             const fragment = processTextNode(node);
-            if (fragment) node.parentNode.replaceChild(fragment, node);
+            if (fragment) {
+                node.parentNode.replaceChild(fragment, node);
+            }
         });
 
-        if (root.nodeType !== Node.ELEMENT_NODE) return;
-        const anchors = [];
-        if (root.matches('a')) anchors.push(root);
-        root.querySelectorAll('a').forEach(a => anchors.push(a));
-        anchors.forEach(a => {
-            if (!a.isConnected || isBlocked(a) || a.dataset.magProcessed) return;
-            const href = a.href || '';
-            if (!href.startsWith('magnet:?xt=urn:btih:') && !href.startsWith('ed2k://') && !href.startsWith('ftp://')) return;
-            if (a.nextElementSibling?.classList?.contains('mag-btn-group') || hasOtherMagnetButtons(a)) return;
-            a.after(createBtnGroup(href));
-            a.dataset.magProcessed = 'true';
+        document.querySelectorAll('a').forEach(a => {
+            if (a.closest('#jav-nong-table')) return;
+            if (a.closest('#nong-table-new')) return;
+            if (a.closest('.whatslink-modal')) return;
+            if (a.dataset.magProcessed) return;
+            let href = normalizeSupportedLink(a.dataset.magRawLink || a.getAttribute('href') || a.href || '');
+            if (/^ed2k:\/\//i.test(href)) {
+                href = repairSplitEd2kAnchor(a) || href;
+            }
+            // 支持 magnet, ed2k, ftp
+            if (/^magnet:\?xt=urn:btih:/i.test(href) || /^ed2k:\/\//i.test(href) || /^ftp:\/\//i.test(href)) {
+                if (a.nextElementSibling?.classList?.contains('mag-btn-group')) return;
+                if (hasOtherMagnetButtons(a)) return;
+                a.dataset.magRawLink = href;
+                a.after(createBtnGroup(href));
+                a.dataset.magProcessed = 'true';
+                processedHrefs.add(href);
+            }
         });
+
     }
 
-    // ================= 13. 设置面板 =================
     function showSettingsModal() {
         const mask = document.createElement('div');
-        mask.dataset.magUi = 'true';
         mask.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100001;display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
 
         const modal = document.createElement('div');
@@ -975,6 +1089,7 @@
             <div class="tab-header" style="display:flex;border-bottom:1px solid #ddd;margin-bottom:20px;">
                 <div class="tab" data-tab="general" style="padding:8px 16px;cursor:pointer;border-bottom:2px solid #0078d4;">常规</div>
                 <div class="tab" data-tab="qb" style="padding:8px 16px;cursor:pointer;">qBittorrent</div>
+                <div class="tab" data-tab="bc" style="padding:8px 16px;cursor:pointer;">BitComet</div>
                 <div class="tab" data-tab="115" style="padding:8px 16px;cursor:pointer;">115网盘</div>
                 <div class="tab" data-tab="advanced" style="padding:8px 16px;cursor:pointer;">高级</div>
             </div>
@@ -996,6 +1111,7 @@
                 <div style="margin-bottom:15px;">
                     <label style="display:flex;align-items:center;margin-bottom:10px;"><input type="checkbox" id="sw_copy" ${config.enableCopy?'checked':''}> <span style="margin-left:8px;">显示复制按钮</span></label>
                     <label style="display:flex;align-items:center;margin-bottom:10px;"><input type="checkbox" id="sw_qb" ${config.enableQb?'checked':''}> <span style="margin-left:8px;">显示 qB 推送按钮</span></label>
+                    <label style="display:flex;align-items:center;margin-bottom:10px;"><input type="checkbox" id="sw_bc" ${config.enableBc?'checked':''}> <span style="margin-left:8px;">显示 BitComet 推送按钮</span></label>
                     <label style="display:flex;align-items:center;margin-bottom:10px;"><input type="checkbox" id="sw_115" ${config.enable115?'checked':''}> <span style="margin-left:8px;">显示 115 离线按钮</span></label>
                     <label style="display:flex;align-items:center;margin-bottom:10px;"><input type="checkbox" id="sw_check" ${config.enableCheck?'checked':''}> <span style="margin-left:8px;">显示验车按钮</span></label>
                 </div>
@@ -1009,6 +1125,20 @@
                     </div>
                     <button id="test_qb" style="padding:8px 15px;background:#28a745;color:white;border:none;border-radius:4px;cursor:pointer;margin-top:5px;">测试连接</button>
                     <span id="qb_test_result" style="margin-left:10px;font-size:13px;"></span>
+                </div>
+            `,
+            bc: `
+                <div style="border-top:1px solid #eee;padding-top:15px;">
+                    <label style="display:flex;align-items:center;margin-bottom:10px;"><input type="checkbox" id="sw_bc_panel" ${config.enableBc?'checked':''}> <span style="margin-left:8px;">启用 BitComet 推送按钮</span></label>
+                    <input id="in_bc_host" type="text" placeholder="BitComet 地址 (如 http://127.0.0.1:8081)" value="${config.bcHost}" style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;">
+                    <div style="display:flex;gap:5px;margin-bottom:8px;">
+                        <input id="in_bc_user" type="text" placeholder="用户名" value="${config.bcUser}" style="flex:1;padding:8px;border:1px solid #ccc;border-radius:4px;">
+                        <input id="in_bc_pass" type="password" placeholder="密码" value="${config.bcPass}" style="flex:1;padding:8px;border:1px solid #ccc;border-radius:4px;">
+                    </div>
+                    <input id="in_bc_save_path" type="text" placeholder="保存路径（可选，如 D:\\Downloads）" value="${config.bcSavePath}" style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;">
+                    <button id="test_bc" style="padding:8px 15px;background:#28a745;color:white;border:none;border-radius:4px;cursor:pointer;margin-top:5px;">测试连接</button>
+                    <span id="bc_test_result" style="margin-left:10px;font-size:13px;"></span>
+                    <p style="font-size:12px;color:#666;margin-top:8px;">需在 BitComet 中启用远程访问/WebUI；脚本使用 /panel/task_add_magnet_result 接口。</p>
                 </div>
             `,
             '115': `
@@ -1043,6 +1173,8 @@
 
             if (tabName === 'qb') {
                 modal.querySelector('#test_qb')?.addEventListener('click', testQbConnection);
+            } else if (tabName === 'bc') {
+                modal.querySelector('#test_bc')?.addEventListener('click', testBitCometConnection);
             } else if (tabName === '115') {
                 modal.querySelector('#test_115')?.addEventListener('click', test115Connection);
             } else if (tabName === 'advanced') {
@@ -1066,6 +1198,42 @@
                 onload: (res) => {
                     if (res.status === 200) {
                         resultSpan.innerHTML = '✅ 连接成功';
+                    } else {
+                        resultSpan.innerHTML = '❌ 连接失败（状态码 ' + res.status + '）';
+                    }
+                },
+                onerror: () => {
+                    resultSpan.innerHTML = '❌ 网络错误或地址不可达';
+                }
+            });
+        }
+
+        function testBitCometConnection() {
+            const host = normalizeHost(modal.querySelector('#in_bc_host').value);
+            const user = modal.querySelector('#in_bc_user').value.trim();
+            const pass = modal.querySelector('#in_bc_pass').value;
+            const resultSpan = modal.querySelector('#bc_test_result');
+            resultSpan.textContent = '测试中...';
+
+            if (!host) {
+                resultSpan.innerHTML = '❌ 地址不能为空';
+                return;
+            }
+
+            const headers = {};
+            if (user || pass) {
+                headers.Authorization = `Basic ${base64EncodeUtf8(`${user}:${pass}`)}`;
+            }
+
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: host + '/panel/task_list_xml',
+                headers,
+                onload: (res) => {
+                    if (res.status === 200) {
+                        resultSpan.innerHTML = '✅ 连接成功';
+                    } else if (res.status === 401 || res.status === 403) {
+                        resultSpan.innerHTML = '❌ 认证失败';
                     } else {
                         resultSpan.innerHTML = '❌ 连接失败（状态码 ' + res.status + '）';
                     }
@@ -1123,11 +1291,16 @@
             const currentConfig = {
                 enableCopy: modal.querySelector('#sw_copy')?.checked ?? config.enableCopy,
                 enableQb: modal.querySelector('#sw_qb')?.checked ?? config.enableQb,
+                enableBc: modal.querySelector('#sw_bc')?.checked ?? modal.querySelector('#sw_bc_panel')?.checked ?? config.enableBc,
                 enable115: modal.querySelector('#sw_115')?.checked ?? config.enable115,
                 enableCheck: modal.querySelector('#sw_check')?.checked ?? config.enableCheck,
                 qbtHost: modal.querySelector('#in_host')?.value.trim() ?? config.qbtHost,
                 qbtUser: modal.querySelector('#in_user')?.value.trim() ?? config.qbtUser,
                 qbtPass: modal.querySelector('#in_pass')?.value.trim() ?? config.qbtPass,
+                bcHost: modal.querySelector('#in_bc_host')?.value.trim() ?? config.bcHost,
+                bcUser: modal.querySelector('#in_bc_user')?.value.trim() ?? config.bcUser,
+                bcPass: modal.querySelector('#in_bc_pass')?.value ?? config.bcPass,
+                bcSavePath: modal.querySelector('#in_bc_save_path')?.value.trim() ?? config.bcSavePath,
                 u115Cid: modal.querySelector('#in_115_cid')?.value.trim() ?? config.u115Cid,
                 u115Uid: modal.querySelector('#in_115_cid')?.value.trim() ?? config.u115Uid
             };
@@ -1149,11 +1322,17 @@
                     const imported = JSON.parse(e.target.result);
                     if (modal.querySelector('#sw_copy')) modal.querySelector('#sw_copy').checked = imported.enableCopy ?? true;
                     if (modal.querySelector('#sw_qb')) modal.querySelector('#sw_qb').checked = imported.enableQb ?? true;
+                    if (modal.querySelector('#sw_bc')) modal.querySelector('#sw_bc').checked = imported.enableBc ?? false;
+                    if (modal.querySelector('#sw_bc_panel')) modal.querySelector('#sw_bc_panel').checked = imported.enableBc ?? false;
                     if (modal.querySelector('#sw_115')) modal.querySelector('#sw_115').checked = imported.enable115 ?? false;
                     if (modal.querySelector('#sw_check')) modal.querySelector('#sw_check').checked = imported.enableCheck ?? true;
                     if (modal.querySelector('#in_host')) modal.querySelector('#in_host').value = imported.qbtHost || 'http://127.0.0.1:8080';
                     if (modal.querySelector('#in_user')) modal.querySelector('#in_user').value = imported.qbtUser || 'admin';
                     if (modal.querySelector('#in_pass')) modal.querySelector('#in_pass').value = imported.qbtPass || 'adminadmin';
+                    if (modal.querySelector('#in_bc_host')) modal.querySelector('#in_bc_host').value = imported.bcHost || 'http://127.0.0.1:8081';
+                    if (modal.querySelector('#in_bc_user')) modal.querySelector('#in_bc_user').value = imported.bcUser || 'admin';
+                    if (modal.querySelector('#in_bc_pass')) modal.querySelector('#in_bc_pass').value = imported.bcPass || '';
+                    if (modal.querySelector('#in_bc_save_path')) modal.querySelector('#in_bc_save_path').value = imported.bcSavePath || '';
                     if (modal.querySelector('#in_115_cid')) modal.querySelector('#in_115_cid').value = imported.u115Cid || imported.u115Uid || '';
                     showToast('✅ 配置导入成功，请检查后保存');
                 } catch (err) {
@@ -1166,11 +1345,16 @@
         modal.querySelector('#btn_save').onclick = () => {
             GM_setValue('enableCopy', modal.querySelector('#sw_copy')?.checked ?? config.enableCopy);
             GM_setValue('enableQb', modal.querySelector('#sw_qb')?.checked ?? config.enableQb);
+            GM_setValue('enableBc', modal.querySelector('#sw_bc')?.checked ?? modal.querySelector('#sw_bc_panel')?.checked ?? config.enableBc);
             GM_setValue('enable115', modal.querySelector('#sw_115')?.checked ?? config.enable115);
             GM_setValue('enableCheck', modal.querySelector('#sw_check')?.checked ?? config.enableCheck);
             GM_setValue('qbtHost', modal.querySelector('#in_host')?.value.trim() ?? config.qbtHost);
             GM_setValue('qbtUser', modal.querySelector('#in_user')?.value.trim() ?? config.qbtUser);
             GM_setValue('qbtPass', modal.querySelector('#in_pass')?.value.trim() ?? config.qbtPass);
+            GM_setValue('bcHost', modal.querySelector('#in_bc_host')?.value.trim() ?? config.bcHost);
+            GM_setValue('bcUser', modal.querySelector('#in_bc_user')?.value.trim() ?? config.bcUser);
+            GM_setValue('bcPass', modal.querySelector('#in_bc_pass')?.value ?? config.bcPass);
+            GM_setValue('bcSavePath', modal.querySelector('#in_bc_save_path')?.value.trim() ?? config.bcSavePath);
             GM_setValue('u115Cid', modal.querySelector('#in_115_cid')?.value.trim() ?? config.u115Cid);
             GM_setValue('u115Uid', modal.querySelector('#in_115_cid')?.value.trim() ?? config.u115Uid);
             mask.remove();
@@ -1181,48 +1365,21 @@
         modal.querySelector('#btn_cancel').onclick = () => mask.remove();
     }
 
-    // ================= 14. 启动监听 =================
     let timer = null;
     let observer = null;
-    const pendingRoots = new Set();
-
-    function containsRoot(parent, child) {
-        return parent === child || (parent.nodeType === Node.ELEMENT_NODE && parent.contains(child));
-    }
-
-    function enqueueRoot(node) {
-        if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) return;
-        if (isInsideScriptUI(node)) return;
-        for (const existing of pendingRoots) if (containsRoot(existing, node)) return;
-        for (const existing of [...pendingRoots]) if (containsRoot(node, existing)) pendingRoots.delete(existing);
-        pendingRoots.add(node);
-    }
-
-    function flushRoots() {
-        timer = null;
-        const roots = [...pendingRoots];
-        pendingRoots.clear();
-        roots.forEach(root => { if (root.isConnected) processPage(root); });
-    }
-
     function lazyRun(delay = 120) {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(flushRoots, delay);
+        timer = setTimeout(processPage, delay);
     }
-
     function startObserver() {
         if (!document.body) {
             setTimeout(startObserver, 30);
             return;
         }
-        processPage(document.body);
-        observer = new MutationObserver(records => {
-            records.forEach(record => record.addedNodes.forEach(enqueueRoot));
-            if (pendingRoots.size) lazyRun();
-        });
+        processPage();
+        observer = new MutationObserver(() => lazyRun());
         observer.observe(document.body, { childList: true, subtree: true });
     }
     startObserver();
 
 })();
-
