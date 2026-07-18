@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         自动选择最高画质
 // @namespace    local.scripting.eporner
-// @version      1.0.5
+// @version      1.0.6
 // @description  自动选择播放视频的最高可用画质
 // @match        https://www.eporner.com/video-*/
 // @match        https://www.eporner.com/video-*/*
@@ -128,9 +128,7 @@
       (item) => item.classList.contains("selected"),
       clickWithoutAutoplay
     )
-    const menu = items[0].closest(".xplayer-settings-menu-new")
-
-    return { ...result, root: menu || player }
+    return { ...result, root: player }
   }
 
   function applyHighestQuality() {
@@ -145,7 +143,11 @@
       : applyEporner()
 
     if (result.root) observePlayer(result.root)
-    if (result.found && !location.hostname.endsWith("xhamster.com")) stopBootstrapObserver()
+    if (result.found) {
+      stopBootstrapObserver()
+      window.clearInterval(retryTimer)
+      retryTimer = 0
+    }
     return result.found
   }
 
@@ -201,8 +203,7 @@
     retryTimer = window.setInterval(() => {
       retries += 1
       const found = applyHighestQuality()
-      const isXHamster = location.hostname.endsWith("xhamster.com")
-      if ((!isXHamster && found) || retries >= MAX_RETRIES) {
+      if (found || retries >= MAX_RETRIES) {
         window.clearInterval(retryTimer)
         retryTimer = 0
         stopBootstrapObserver()

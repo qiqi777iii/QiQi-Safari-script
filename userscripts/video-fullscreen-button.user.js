@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         视频全屏按钮
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.2.0
+// @version      1.2.1
 // @description  检测网页视频，点击按钮后自动播放并切换为全屏。
 // @author       Scripting Agent
 // @match        http://*/*
@@ -21,6 +21,7 @@
   const USER_PLAYBACK_ATTRIBUTE = "data-user-playback-until";
   const COVER_PREVIEW_ACTIVE_CLASS = "__mobile_preview_active__";
   const COVER_PREVIEW_VIDEO_CLASS = "__mobile_preview__";
+  const PREVIEW_CONTAINER_SELECTOR = 'a[href], [class*="preview" i], [class*="thumb" i], [class*="card" i], [class*="related" i], [class*="recommend" i]';
   const ITEM_SIZE = 35;
   const CONNECT_OVERLAP = 1;
   const DEFAULT_RIGHT_GAP = 86;
@@ -32,7 +33,6 @@
     observer: null,
     baseObserver: null,
     navObserver: null,
-    resizeObserver: null,
     updateTimer: null,
     positionScheduled: false,
   };
@@ -66,12 +66,12 @@
 
   function videoScore(video) {
     if (!(video instanceof HTMLVideoElement) || !elementVisible(video) || isCoverPreviewVideo(video)) return -1;
+    const previewContainer = video.closest?.(PREVIEW_CONTAINER_SELECTOR);
+    if (previewContainer) return -1;
     const rect = video.getBoundingClientRect();
     let score = rect.width * rect.height;
-    const previewContainer = video.closest?.('a[href], [class*="preview" i], [class*="thumb" i], [class*="card" i], [class*="related" i], [class*="recommend" i]');
-    if (previewContainer) score *= 0.05;
     const mainPlayerContainer = video.closest?.('[class*="player" i], [id*="player" i], .video-js, .plyr');
-    if (mainPlayerContainer && !previewContainer) score *= 4;
+    if (mainPlayerContainer) score *= 4;
     return score;
   }
 
@@ -87,7 +87,7 @@
     );
     for (const selector of selectors) {
       const video = document.querySelector(selector);
-      if (video instanceof HTMLVideoElement && elementVisible(video) && !isCoverPreviewVideo(video)) return video;
+      if (video instanceof HTMLVideoElement && videoScore(video) >= 0) return video;
     }
     return null;
   }
@@ -257,22 +257,12 @@
     return /(^|\.)xhamster\.[a-z0-9.-]+$/i.test(location.hostname);
   }
 
-  function prepareXHamsterHighestQuality(video) {
+  function markXHamsterUserPlayback(video) {
     if (!isXHamster()) return;
-    // 先允许这次用户主动播放，避免最高画质脚本的防自动播放逻辑把视频暂停。
+    // 标记这次用户主动播放，避免最高画质脚本在切换清晰度时把视频暂停。
     const playbackAllowedUntil = String(Date.now() + 5000);
     video.setAttribute(USER_PLAYBACK_ATTRIBUTE, playbackAllowedUntil);
     document.documentElement?.setAttribute(USER_PLAYBACK_ATTRIBUTE, playbackAllowedUntil);
-    const choices = Array.from(document.querySelectorAll(".xplayer-settings-menu-new__option.quality"))
-      .filter((item) => item.getAttribute("aria-disabled") !== "true")
-      .map((item) => {
-        const match = (item.textContent || "").match(/(?:^|\s)(\d{3,4})\s*p\b/i);
-        return { item, quality: match ? Number(match[1]) : 0 };
-      })
-      .filter(({ quality }) => quality > 0)
-      .sort((a, b) => b.quality - a.quality);
-    const highest = choices[0]?.item;
-    if (highest && !highest.classList.contains("selected")) highest.click();
   }
 
   function startXHamsterNativePlayer(video) {
@@ -320,7 +310,7 @@
       return;
     }
     try {
-      prepareXHamsterHighestQuality(video);
+      markXHamsterUserPlayback(video);
 
       if (startXHamsterNativePlayer(video)) {
         // 已通过站点原生播放入口启动；支持时再立即请求一次原生全屏作为保险。
@@ -421,11 +411,21 @@
   }
 
   function mutationTouchesVideoOrToolbar(mutation) {
-    const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
-    return nodes.some((node) => node instanceof Element && (
-      node.matches?.(`video, #${BASE_TOOLBAR_ID}, #${PAGE_NAVIGATION_ID}`) ||
-      node.querySelector?.(`video, #${BASE_TOOLBAR_ID}, #${PAGE_NAVIGATION_ID}`)
-    ));
+    const toolbarSelector = `#${BASE_TOOLBAR_ID}, #${PAGE_NAVIGATION_ID}`;
+    const removedActiveVideo = state.activeVideo && [...mutation.removedNodes].some((node) =>
+      node === state.activeVideo || (node instanceof Element && node.contains(state.activeVideo))
+    );
+    if (removedActiveVideo) return true;
+
+    return [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
+      if (!(node instanceof Element)) return false;
+      if (node.matches?.(toolbarSelector) || node.querySelector?.(toolbarSelector)) return true;
+
+      const videos = node.matches?.("video") ? [node] : [...node.querySelectorAll?.("video") || []];
+      return videos.some((video) =>
+        !isCoverPreviewVideo(video) && !video.closest?.(PREVIEW_CONTAINER_SELECTOR)
+      );
+    });
   }
 
   function init() {
@@ -440,7 +440,12 @@
     scheduleUpdate(0);
 
     ["play", "playing", "pause", "ended", "emptied", "loadedmetadata", "abort", "error"].forEach((type) => {
-      document.addEventListener(type, () => scheduleUpdate(type === "play" || type === "playing" ? 0 : 80), true);
+      document.addEventListener(type, (event) => {
+        const video = event.target;
+        if (!(video instanceof HTMLVideoElement) || videoScore(video) < 0) return;
+        if (state.activeVideo?.isConnected && video !== state.activeVideo && videoScore(state.activeVideo) >= 0) return;
+        scheduleUpdate(type === "play" || type === "playing" ? 0 : 80);
+      }, true);
     });
 
     state.observer = new MutationObserver((mutations) => {
@@ -454,14 +459,8 @@
     });
     state.observer.observe(root, { subtree: true, childList: true });
 
-    if (typeof ResizeObserver === "function") {
-      state.resizeObserver = new ResizeObserver(schedulePosition);
-      state.resizeObserver.observe(document.documentElement);
-    }
     window.addEventListener("resize", schedulePosition);
-    window.addEventListener("scroll", schedulePosition, { passive: true });
     window.visualViewport?.addEventListener("resize", schedulePosition);
-    window.visualViewport?.addEventListener("scroll", schedulePosition);
     window.addEventListener("pageshow", () => scheduleUpdate(0));
     window.addEventListener("scripts:urlchange", () => scheduleUpdate(80));
     document.addEventListener("visibilitychange", () => {
