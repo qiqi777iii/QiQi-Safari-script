@@ -401,6 +401,60 @@
         setTimeout(() => toast.remove(), 2000);
     }
 
+    // 兼容手机浏览器 / Scripting App / Tampermonkey 的复制方法
+    function copyText(text) {
+        if (!text) return false;
+        try {
+            if (copyTextBySelection(text)) return true;
+        } catch (_) {}
+        try {
+            if (typeof GM_setClipboard === 'function') {
+                GM_setClipboard(text);
+                return true;
+            }
+        } catch (_) {}
+        try {
+            if (typeof GM !== 'undefined' && GM.setClipboard) {
+                GM.setClipboard(text, 'text');
+                return true;
+            }
+        } catch (_) {}
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (_) {}
+        return false;
+    }
+
+    function copyTextBySelection(text) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.autocapitalize = 'off';
+        textarea.autocomplete = 'off';
+        textarea.autocorrect = 'off';
+        textarea.spellcheck = false;
+        textarea.style.cssText = 'position:fixed;top:0;left:0;width:2px;height:2px;padding:0;border:0;font-size:16px;background:#fff;color:#000;opacity:.01;z-index:2147483647;';
+        document.body.appendChild(textarea);
+        try {
+            textarea.focus();
+            textarea.select();
+            textarea.setSelectionRange(0, textarea.value.length);
+            const selection = window.getSelection && window.getSelection();
+            if (selection) {
+                selection.removeAllRanges();
+                const range = document.createRange();
+                range.selectNodeContents(textarea);
+                selection.addRange(range);
+                textarea.setSelectionRange(0, textarea.value.length);
+            }
+            return document.execCommand('copy');
+        } finally {
+            textarea.parentNode.removeChild(textarea);
+        }
+    }
+
     function setBtnActive(clickedBtn, group) {
         group.querySelectorAll('.mag-btn').forEach(btn => {
             btn.innerHTML = btn.dataset.origIcon;
@@ -675,10 +729,17 @@
             group.appendChild(btn);
         };
 
+        if (config.enableCheck) {
+            addBtn('check', ICONS.car, '验车', (btn) => handleCheckCar(link, btn));
+        }
         if (config.enableCopy) {
             addBtn('copy', ICONS.copy, '复制链接', () => {
                 const processedLink = simplifyMagnetLink(link);
-                GM_setClipboard(processedLink, 'text');
+                const copied = copyText(processedLink);
+                if (!copied) {
+                    showToast('❌ 复制失败，请长按链接复制', false);
+                    return;
+                }
                 if (processedLink !== link) {
                     showToast('📋 精简链接已复制');
                 } else {
@@ -695,10 +756,6 @@
         if (config.enable115) {
             addBtn('115', ICONS.u115, '115 离线', () => pushTo115(link));
         }
-        if (config.enableCheck) {
-            addBtn('check', ICONS.car, '验车', (btn) => handleCheckCar(link, btn));
-        }
-
         return group;
     }
 
