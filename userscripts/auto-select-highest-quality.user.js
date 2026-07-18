@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         自动选择最高画质
 // @namespace    local.scripting.eporner
-// @version      1.0.6
+// @version      1.0.7
 // @description  自动选择播放视频的最高可用画质
+// @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/auto-select-highest-quality.user.js
+// @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/auto-select-highest-quality.user.js
 // @match        https://www.eporner.com/video-*/
 // @match        https://www.eporner.com/video-*/*
 // @match        https://www.eporner.com/hd-porn/*
