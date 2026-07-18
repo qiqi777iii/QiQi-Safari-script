@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         新标签页打开
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.2.10
+// @version      1.4.8
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js
 // @description  在网页显示悬浮开关，控制链接是否在 Safari 后台新标签页中打开。
@@ -21,6 +21,7 @@
     const BTN_SIZE = 35;
     const BOTTOM_GAP = 40;
     const LINK_TOOLBAR_GAP = 0;
+    const CONNECT_OVERLAP = 1;
     const TOOLBAR_RIGHT_GAP = 16;
     const NEIGHBOR_TOOLBAR_HEIGHT = 35;
     const DEFAULT_BOTTOM = BOTTOM_GAP + (NEIGHBOR_TOOLBAR_HEIGHT - BTN_SIZE) / 2;
@@ -31,6 +32,7 @@
     const SHARED_HISTORY_HOOK_KEY = '__sharedHistoryHookV1__';
     const COVER_PREVIEW_READY_ATTR = 'data-cover-preview-ready';
     const BACKGROUND_OPEN_REQUEST_EVENT = 'scripts:background-open-request';
+    const TAB_CHECK_REQUEST_EVENT = 'scripts:tab-check-request';
     const GROUP_LEFT_WIDTH = 35;
     const SENSITIVE_ACTION_NAMES = new Set([
         'login', 'signin', 'signout', 'logout', 'auth', 'authorize', 'oauth', 'sso', 'saml',
@@ -355,6 +357,16 @@
         openLinkWithAnchor(href);
     }
 
+    function requestCheckedBackgroundOpen(href, sourceLink) {
+        if (!href) return;
+        const event = new CustomEvent(TAB_CHECK_REQUEST_EVENT, {
+            cancelable: true,
+            detail: { href, sourceLink: sourceLink || null }
+        });
+        window.dispatchEvent(event);
+        if (!event.defaultPrevented) openLinkInBackground(href);
+    }
+
     function getMissAvHiddenPreview(a) {
         const context = getMissAvPreviewContext(a);
         return context?.preview.classList.contains('hidden') ? context : null;
@@ -467,7 +479,7 @@
         if (!href) return;
         e.preventDefault();
         e.stopImmediatePropagation();
-        openLinkInBackground(href);
+        requestCheckedBackgroundOpen(href, a);
     }
 
     function handleBackgroundOpenRequest(event) {
@@ -480,7 +492,7 @@
         // 封面预览脚本在同一次真实用户点击中同步派发该事件（事件在 content/page 两个 world 间共享）。
         // 用户激活仍在调用栈上，直接后台打开并提示即可；不再依赖任何手势握手。
         event.preventDefault();
-        openLinkInBackground(url.href);
+        requestCheckedBackgroundOpen(url.href, null);
     }
 
     function handleLinkOpen(e) {
@@ -500,7 +512,7 @@
         if (!href) return;
         // 在冒泡末端只取消浏览器默认导航；保留站点已执行的目标/document 处理器。
         e.preventDefault();
-        openLinkInBackground(href);
+        requestCheckedBackgroundOpen(href, a);
     }
 
     function injectCSS() {
@@ -509,15 +521,16 @@
         style.id = '__tb_style__';
         style.textContent = `
 #__tb__{position:fixed;z-index:2147483647;width:${BTN_SIZE}px;height:${BTN_SIZE}px;box-sizing:border-box;touch-action:none;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;transform:translate3d(0,0,0);will-change:left,top,right,bottom,transform;}
-#__tb_btn__{width:${BTN_SIZE}px;height:${BTN_SIZE}px;box-sizing:border-box;border-radius:999px;background:rgba(242,242,247,.92);color:rgba(28,28,30,.82);-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);border:0;box-shadow:inset 0 0 0 .5px rgba(60,60,67,.16);filter:none;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:opacity .2s,background .2s,color .2s,box-shadow .2s;}
-#__tb_btn__[data-connected-left="true"][data-connected-right="true"]{border-radius:0;}
-#__tb_btn__[data-connected-left="true"][data-connected-right="false"]{border-radius:0 999px 999px 0;}
-#__tb_btn__[data-connected-left="false"][data-connected-right="true"]{border-radius:999px 0 0 999px;}
-#__tb_btn__[data-enabled="true"]{background:rgba(242,242,247,.92);color:#0A84FF;box-shadow:inset 0 0 0 .5px rgba(60,60,67,.16);}
+#__tb_btn__{--combined-separator:rgba(60,60,67,.16);position:relative;width:${BTN_SIZE}px;height:${BTN_SIZE}px;box-sizing:border-box;border-radius:999px;background:rgba(242,242,247,.92);color:rgba(28,28,30,.82);-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);border:0;box-shadow:inset 0 0 0 .5px var(--combined-separator);filter:none;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:opacity .2s,background .2s,color .2s,box-shadow .2s;}
+#__tb_btn__[data-connected-left="true"][data-connected-right="true"]{border-radius:0;box-shadow:inset 0 .5px 0 var(--combined-separator),inset 0 -.5px 0 var(--combined-separator);}
+#__tb_btn__[data-connected-left="true"][data-connected-right="false"]{border-radius:0 999px 999px 0;box-shadow:inset -.5px 0 0 var(--combined-separator),inset 0 .5px 0 var(--combined-separator),inset 0 -.5px 0 var(--combined-separator);}
+#__tb_btn__[data-connected-left="false"][data-connected-right="true"]{border-radius:999px 0 0 999px;box-shadow:inset .5px 0 0 var(--combined-separator),inset 0 .5px 0 var(--combined-separator),inset 0 -.5px 0 var(--combined-separator);}
+#__tb_btn__[data-connected-left="true"]::before{content:"";position:absolute;z-index:2;left:0;top:50%;width:1px;height:16px;background:var(--combined-separator);transform:translateY(-50%);pointer-events:none;}
+#__tb_btn__[data-enabled="true"]{color:#0A84FF;}
 #__tb_btn__ svg{pointer-events:none;stroke:currentColor;}
 #__tb_btn__:active{transform:none;opacity:.94;background:rgba(229,229,234,.96);}
 #__tb_btn__[data-enabled="true"]:active{background:rgba(229,229,234,.96);}
-@media (prefers-color-scheme: dark){#__tb_btn__{background:rgba(44,44,46,.82);color:rgba(255,255,255,.88);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#__tb_btn__[data-enabled="true"]{background:rgba(44,44,46,.82);color:#64D2FF;box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#__tb_btn__:active,#__tb_btn__[data-enabled="true"]:active{background:rgba(58,58,60,.92);}}`;
+@media (prefers-color-scheme: dark){#__tb_btn__{--combined-separator:rgba(255,255,255,.16);background:rgba(44,44,46,.82);color:rgba(255,255,255,.88);}#__tb_btn__[data-enabled="true"]{color:#64D2FF;}#__tb_btn__:active,#__tb_btn__[data-enabled="true"]:active{background:rgba(58,58,60,.92);}}`;
         const parent = document.head || document.documentElement || document.body;
         if (parent) parent.appendChild(style);
     }
@@ -638,7 +651,7 @@
         if (neighbor) {
             const rect = neighbor.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-                const pos = clampPos(rect.left - LINK_TOOLBAR_GAP - BTN_SIZE, 0);
+                const pos = clampPos(rect.left - LINK_TOOLBAR_GAP - BTN_SIZE + CONNECT_OVERLAP, 0);
                 toolbar.style.left = pos.left + 'px';
                 toolbar.style.right = 'auto';
                 const usesBottom = neighbor.style.bottom && neighbor.style.bottom !== 'auto' && (!neighbor.style.top || neighbor.style.top === 'auto');

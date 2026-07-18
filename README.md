@@ -19,6 +19,7 @@
 | MissAV Plyr 本地样式修复 | 为 MissAV 内置 Plyr 3.6.8 官方 CSS，避免 CDN 请求失败破坏播放器布局；网站升级 Plyr 时提示更新脚本。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/missav-plyr-local-style.user.js) |
 | 新标签页打开 | 通过网页悬浮开关控制链接是否在 Safari 后台新标签页中打开。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/new-tab-opener.user.js) |
 | 翻页工具 | 自动识别网页上一页和下一页，并显示独立悬浮翻页按钮。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/page-turning-tool.user.js) |
+| 标签页检查 | 检查 MissAV 页面中的视频是否仍在 Safari 后台打开，或是否曾经打开。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/tab-checker.user.js) |
 | 视频全屏按钮 | 检测网页视频，通过悬浮按钮自动播放并切换全屏。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/video-fullscreen-button.user.js) |
 | 番号快速搜索 | 识别并标记网页中的番号，提供常用网站快捷搜索。 | [安装](https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/search-av-mobile.user.js) |
 
@@ -35,6 +36,7 @@
 | Claude额度 | 查看 Claude 使用额度，包含 App 页面和桌面小组件。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/ClaudeUsage) |
 | Codex额度 | 查看 Codex 使用额度，包含 App 页面和桌面小组件。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/CodexUsage) |
 | 标签页收藏 | 从 Safari 分享表收藏网页并分组管理，支持 WebDAV 同步、历史快照、桌面小组件和配套 Safari 收藏按钮。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/TabsSaver) |
+| 视频打开记录 | 查看并管理由标签页检查脚本保存的视频打开历史。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/VideoOpenHistory) |
 | 翻译器 | 支持系统翻译、Apple Intelligence、Google 网页翻译、可配置 AI 接口、快捷指令和系统翻译界面。 | [地址](https://github.com/qiqi777iii/Scripts/tree/main/scripts/Translator) |
 
 ## 使用说明

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         视频封面预览
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.2.10
+// @version      1.3.1
 // @description  首次点按视频封面播放静音预览，再次点按进入详情；支持通用网页检测，并保留已适配站点的专用逻辑。
 // @match        *://*/*
 // @grant        none
@@ -16,6 +16,7 @@
     const PREVIEW_CLASS = '__mobile_preview__';
     const ACTIVE_CLASS = '__mobile_preview_active__';
     const COVER_PREVIEW_READY_ATTR = 'data-cover-preview-ready';
+    const LINK_INTERACTION_OWNER_ATTR = 'data-link-interaction-owner';
     const BACKGROUND_OPEN_REQUEST_EVENT = 'scripts:background-open-request';
     const IS_MISSAV = /(^|\.)missav\.[a-z0-9-]+$/i.test(location.hostname);
     const IS_RULE34VIDEO = /(^|\.)rule34video\.com$/i.test(location.hostname);
@@ -25,387 +26,22 @@
     const IS_XHAMSTER = /(^|\.)xhamster\.com$/i.test(location.hostname);
     const IS_PORNHUB = /(^|\.)pornhub\.com$/i.test(location.hostname);
     const IS_SPECIAL_SITE = IS_MISSAV || IS_RULE34VIDEO || IS_SPANKBANG || IS_EPORNER || IS_XVIDEOS || IS_XHAMSTER || IS_PORNHUB;
-    const BLOCK_NATIVE_SITE_PREVIEW = IS_SPANKBANG || IS_EPORNER || IS_XHAMSTER || IS_PORNHUB;
+    const BLOCK_NATIVE_SITE_PREVIEW = IS_MISSAV || IS_SPANKBANG || IS_EPORNER || IS_XVIDEOS || IS_XHAMSTER || IS_PORNHUB;
     const TAP_MAX_MS = 500;
     const SWIPE_CANCEL_DISTANCE = 10;
-    // 页面最后一次滚动后的安定期：期内的点按视为“停住惯性滚动”，不触发预览。
+    const PREVIEW_SCROLL_CANCEL_DISTANCE = 48;
     const SCROLL_SETTLE_MS = 300;
 
-    if (IS_XVIDEOS) {
-        initXVideos();
-        return;
-    }
-
     let active = null;
-    let enforcingSinglePreview = false;
-    let previewStartedAt = 0;
-    let previewScrollY = null;
-    let nativePreviewBlockUntil = 0;
-    let nativePreviewBlockUrl = null;
-    // 统一手势状态。
-    let touch = null;
+    let gesture = null;
+    let compatClickGuard = null;
     let lastScrollAt = 0;
     let lastScrollY = window.scrollY;
-    let compatClickGuard = null;
-
-    function initXVideos() {
-        const CARD_SELECTOR = '.thumb-block:not(.thumb-ad)';
-        const COVER_SELECTOR = '.thumb-inside .thumb';
-        const PREVIEW_IMAGE_SELECTOR = 'img[data-pvv]';
-        const VIDEO_PATH_RE = /^\/video(?:\.[^/]+|\d+)(?:\/|$)/i;
-        const PREVIEW_CLASS = '__xvideos_preview__';
-        const ACTIVE_CLASS = '__xvideos_preview_active__';
-        const LINK_INTERACTION_OWNER_ATTR = 'data-link-interaction-owner';
-        const TAP_MAX_MS = 500;
-        const MOVE_CANCEL_DISTANCE = 10;
-        const PREVIEW_SCROLL_CANCEL_DISTANCE = 48;
-
-        let activePreview = null;
-        let gesture = null;
-        let suppressNextClick = null;
-        let pageScrolling = false;
-
-        function isElement(value) {
-            return value instanceof Element;
-        }
-
-        function normalizeHttpUrl(value) {
-            const raw = String(value || '').trim();
-            if (!raw || /^(?:data:|blob:|javascript:)/i.test(raw)) return null;
-            try {
-                const url = new URL(raw, document.baseURI);
-                if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return null;
-                return url;
-            } catch (_) {
-                return null;
-            }
-        }
-
-        function isVideoDetailUrl(url) {
-            return Boolean(url && url.origin === location.origin && VIDEO_PATH_RE.test(url.pathname));
-        }
-
-        function getContext(target) {
-            if (!isElement(target)) return null;
-            const card = target.closest(CARD_SELECTOR);
-            if (!card) return null;
-            const cover = card.querySelector(COVER_SELECTOR);
-            const image = cover?.querySelector(PREVIEW_IMAGE_SELECTOR);
-            const link = image?.closest('a[href]');
-            const detailUrl = normalizeHttpUrl(link?.getAttribute('href'));
-            const previewUrl = normalizeHttpUrl(image?.getAttribute('data-pvv'));
-            if (!cover || !image || !link || !isVideoDetailUrl(detailUrl) || !previewUrl) return null;
-            return {
-                card,
-                cover,
-                image,
-                link,
-                detailHref: detailUrl.href,
-                previewHref: previewUrl.href,
-            };
-        }
-
-        function isCoverTarget(context, target) {
-            return Boolean(context && isElement(target) && context.cover.contains(target));
-        }
-
-        function getVideoLink(target) {
-            if (!isElement(target)) return null;
-            const link = target.closest('a[href]');
-            if (!link) return null;
-            const url = normalizeHttpUrl(link.getAttribute('href'));
-            return isVideoDetailUrl(url) ? { link, href: url.href } : null;
-        }
-
-        function sameContext(a, b) {
-            return Boolean(a && b && a.card === b.card && a.detailHref === b.detailHref);
-        }
-
-        function addStyle() {
-            if (document.getElementById('__xvideos_adapter_style__')) return;
-            const style = document.createElement('style');
-            style.id = '__xvideos_adapter_style__';
-            style.textContent = `
-    .${PREVIEW_CLASS}{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;display:block!important;object-fit:cover!important;z-index:2147483000!important;margin:0!important;padding:0!important;border:0!important;outline:0!important;background:#000!important;pointer-events:none!important;opacity:1!important;visibility:visible!important;}
-    `;
-            (document.head || document.documentElement).appendChild(style);
-        }
-
-        function stopPreview() {
-            const current = activePreview;
-            activePreview = null;
-            if (!current) return;
-            current.observer?.disconnect();
-            try { current.video.pause(); } catch (_) {}
-            current.video.remove();
-            current.context.card.classList.remove(ACTIVE_CLASS);
-            if (current.context.cover.dataset.previewXvideosPosition === '1') {
-                current.context.cover.style.position = current.oldPosition;
-                delete current.context.cover.dataset.previewXvideosPosition;
-            }
-        }
-
-        function watchVisibility(context) {
-            if (typeof IntersectionObserver !== 'function') return null;
-            const observer = new IntersectionObserver(function (entries) {
-                if (entries.some(function (entry) {
-                    return entry.target === context.card && entry.intersectionRatio < 0.08;
-                })) stopPreview();
-            }, { threshold: [0, 0.08] });
-            observer.observe(context.card);
-            return observer;
-        }
-
-        function startPreview(context) {
-            stopPreview();
-            addStyle();
-
-            const oldPosition = context.cover.style.position;
-            if (getComputedStyle(context.cover).position === 'static') {
-                context.cover.dataset.previewXvideosPosition = '1';
-                context.cover.style.position = 'relative';
-            }
-
-            const video = document.createElement('video');
-            video.className = PREVIEW_CLASS;
-            video.muted = true;
-            video.defaultMuted = true;
-            video.loop = true;
-            video.autoplay = true;
-            video.playsInline = true;
-            video.preload = 'auto';
-            video.disablePictureInPicture = true;
-            video.setAttribute('muted', '');
-            video.setAttribute('playsinline', '');
-            video.setAttribute('webkit-playsinline', '');
-            if (context.image.currentSrc || context.image.src) video.poster = context.image.currentSrc || context.image.src;
-            video.src = context.previewHref;
-
-            context.card.classList.add(ACTIVE_CLASS);
-            context.cover.appendChild(video);
-            activePreview = {
-                context,
-                video,
-                oldPosition,
-                scrollY: window.scrollY,
-                observer: watchVisibility(context),
-            };
-
-            video.addEventListener('error', function () {
-                if (activePreview?.video === video) stopPreview();
-            }, { once: true });
-            try { video.play()?.catch?.(function () {}); } catch (_) {}
-        }
-
-        function openVideo(href) {
-            stopPreview();
-            if (requestBackgroundOpen(href)) return;
-            location.assign(href);
-        }
-
-        function performCoverAction(context) {
-            if (activePreview && sameContext(activePreview.context, context)) openVideo(context.detailHref);
-            else startPreview(context);
-        }
-
-        function blockNativePreview(event) {
-            const context = getContext(event.target);
-            if (!context || !isCoverTarget(context, event.target)) return;
-            if (event.type.startsWith('pointer') && event.pointerType !== 'touch') return;
-            if (event.type.startsWith('mouse') && !gesture && !suppressNextClick) return;
-            event.stopImmediatePropagation();
-        }
-
-        ['pointerover', 'pointerenter', 'mouseover', 'mouseenter'].forEach(function (type) {
-            window.addEventListener(type, blockNativePreview, true);
-        });
-
-        window.addEventListener('touchstart', function (event) {
-            suppressNextClick = null;
-            if (event.isTrusted !== true) return;
-            if (event.touches.length !== 1) {
-                gesture = null;
-                return;
-            }
-            const context = getContext(event.target);
-            if (!context || !isCoverTarget(context, event.target)) {
-                gesture = null;
-                return;
-            }
-            const point = event.touches[0];
-            gesture = {
-                context,
-                x: point.clientX,
-                y: point.clientY,
-                startedAt: Date.now(),
-                scrollY: window.scrollY,
-                startedWhileScrolling: pageScrolling,
-                moved: false,
-            };
-            // 只阻断 XVideos 自己的封面手势，不阻止 Safari 滚动和长按菜单。
-            event.stopImmediatePropagation();
-        }, { capture: true, passive: true });
-
-        window.addEventListener('touchmove', function (event) {
-            if (!gesture) return;
-            event.stopImmediatePropagation();
-            if (event.touches.length !== 1 || gesture.moved) return;
-            const point = event.touches[0];
-            const fingerDistance = Math.hypot(point.clientX - gesture.x, point.clientY - gesture.y);
-            const pageDistance = Math.abs(window.scrollY - gesture.scrollY);
-            if (fingerDistance >= MOVE_CANCEL_DISTANCE || pageDistance >= MOVE_CANCEL_DISTANCE) {
-                gesture.moved = true;
-                stopPreview();
-            }
-        }, { capture: true, passive: true });
-
-        window.addEventListener('touchend', function (event) {
-            const origin = gesture;
-            gesture = null;
-            if (!origin) return;
-
-            const endContext = getContext(event.target);
-            suppressNextClick = { card: origin.context.card, href: origin.context.detailHref };
-            event.stopImmediatePropagation();
-
-            const elapsed = Date.now() - origin.startedAt;
-            const pageMoved = Math.abs(window.scrollY - origin.scrollY) >= MOVE_CANCEL_DISTANCE;
-            const validTap = !origin.moved && !origin.startedWhileScrolling && !pageMoved && elapsed < TAP_MAX_MS &&
-                sameContext(origin.context, endContext) && isCoverTarget(endContext, event.target);
-            if (!validTap) return;
-
-            event.preventDefault();
-            performCoverAction(origin.context);
-        }, { capture: true, passive: false });
-
-        window.addEventListener('touchcancel', function () {
-            gesture = null;
-            stopPreview();
-        }, { capture: true, passive: true });
-
-        window.addEventListener('contextmenu', function (event) {
-            const context = getContext(event.target);
-            if (!context || !isCoverTarget(context, event.target)) return;
-            gesture = null;
-            suppressNextClick = { card: context.card, href: context.detailHref };
-        }, true);
-
-        window.addEventListener('click', function (event) {
-            if (event.isTrusted !== true) return;
-            const context = getContext(event.target);
-            if (context && isCoverTarget(context, event.target)) {
-                if (suppressNextClick && suppressNextClick.card === context.card && suppressNextClick.href === context.detailHref) {
-                    suppressNextClick = null;
-                    event.preventDefault();
-                    event.stopImmediatePropagation();
-                    return;
-                }
-                suppressNextClick = null;
-                if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                event.preventDefault();
-                event.stopImmediatePropagation();
-                performCoverAction(context);
-                return;
-            }
-
-            suppressNextClick = null;
-            const videoLink = getVideoLink(event.target);
-            if (!videoLink) {
-                if (activePreview) stopPreview();
-                return;
-            }
-            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            openVideo(videoLink.href);
-        }, true);
-
-        window.addEventListener('scroll', function (event) {
-            if (event.target !== document && event.target !== document.documentElement && event.target !== window) return;
-            pageScrolling = true;
-            if (!activePreview) {
-                if (gesture && Math.abs(window.scrollY - gesture.scrollY) >= MOVE_CANCEL_DISTANCE) gesture.moved = true;
-                return;
-            }
-            if (Math.abs(window.scrollY - activePreview.scrollY) >= PREVIEW_SCROLL_CANCEL_DISTANCE) stopPreview();
-            if (gesture && Math.abs(window.scrollY - gesture.scrollY) >= MOVE_CANCEL_DISTANCE) gesture.moved = true;
-        }, { capture: true, passive: true });
-
-        window.addEventListener('scrollend', function () {
-            pageScrolling = false;
-        }, { capture: true, passive: true });
-
-        window.addEventListener('pagehide', stopPreview);
-        document.addEventListener('visibilitychange', function () {
-            if (document.hidden) stopPreview();
-        });
-
-        addStyle();
-        document.documentElement?.setAttribute(LINK_INTERACTION_OWNER_ATTR, 'cover-video-preview');
-        document.documentElement?.setAttribute(COVER_PREVIEW_READY_ATTR, '1');
-    }
-
-    function addStyle() {
-        if (document.getElementById('__mobile_preview_style__')) return;
-        const style = document.createElement('style');
-        style.id = '__mobile_preview_style__';
-        style.textContent = `
-.${PREVIEW_CLASS}{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;display:block!important;z-index:2147483000!important;margin:0!important;padding:0!important;border:0!important;outline:0!important;background:#000!important;pointer-events:none!important;opacity:1!important;visibility:visible!important;}
-`;
-        (document.head || document.documentElement).appendChild(style);
-    }
+    let nativePreviewBlockUntil = 0;
+    let nativePreviewBlockUrl = null;
 
     function safeClosest(target, selector) {
         return target instanceof Element ? target.closest(selector) : null;
-    }
-
-    function isPreviewCapableCard(card) {
-        if (!(card instanceof Element)) return false;
-        // 全局总规则：详情链接、封面和可立即解析的预览视频源缺一不可。
-        // 没有预览源就不接管点击，Logo、导航和普通图片链接维持网站原行为。
-        return Boolean(cardUrl(card) && card.querySelector('img, picture') && resolvePreviewUrl(card));
-    }
-
-    function findCard(target) {
-        let card = null;
-
-        card = safeClosest(target, 'li[data-video-vkey], li[data-video-id]');
-        if (IS_PORNHUB && card?.querySelector('a.imageLink[data-webm][href*="view_video.php?viewkey="] img') && isPreviewCapableCard(card)) return card;
-
-        if (IS_XHAMSTER) {
-            card = safeClosest(target, 'a[data-previewvideo][href]');
-            if (!isPreviewCapableCard(card)) return null;
-            try {
-                const url = new URL(cardUrl(card));
-                return url.origin === location.origin && /^\/videos\/[^/]+(?:\/|$)/i.test(url.pathname) ? card : null;
-            } catch (_) {
-                return null;
-            }
-        }
-
-        card = safeClosest(target, 'a[href]');
-        if (IS_MISSAV && card?.querySelector('video.preview[data-src], video.preview[src]') && isPreviewCapableCard(card)) return card;
-        if (IS_SPANKBANG && card?.matches('[data-testid="recommended-video"]') && isPreviewCapableCard(card)) return card;
-
-        card = safeClosest(target, '.mb[data-id], .mb[data-vp]');
-        if (IS_EPORNER && card?.querySelector('.mbimg img, .mbcontent img') && cardUrl(card) && resolveEpornerPreviewUrl(card)) return card;
-
-        card = safeClosest(target, '.mb');
-        if (IS_RULE34VIDEO && card?.dataset.id && isPreviewCapableCard(card)) return card;
-
-        card = safeClosest(target, '.item.thumb, a.th');
-        if (IS_EPORNER && isPreviewCapableCard(card)) return card;
-
-        card = safeClosest(target, '.video-item, .js-video-item, [id^="recommended_video"]');
-        if (IS_SPECIAL_SITE && isPreviewCapableCard(card)) return card;
-
-        card = safeClosest(target, 'a[href]');
-        if (isPreviewCapableCard(card)) return card;
-
-        card = safeClosest(target, 'article, li, [class*="video" i], [class*="thumb" i], [class*="card" i]');
-        if (isPreviewCapableCard(card)) return card;
-
-        return null;
     }
 
     function normalizeMediaUrl(value) {
@@ -413,7 +49,8 @@
         if (!raw || /^(?:data:|blob:|javascript:)/i.test(raw)) return null;
         try {
             const url = new URL(raw, document.baseURI);
-            return /^https?:$/i.test(url.protocol) ? url.href : null;
+            if (!/^https?:$/i.test(url.protocol) || url.username || url.password) return null;
+            return url.href;
         } catch (_) {
             return null;
         }
@@ -422,6 +59,7 @@
     function sourceFromMedia(media) {
         if (!media) return null;
         const values = [
+            media.getAttribute?.('data-pvv'),
             media.getAttribute?.('data-preview'),
             media.getAttribute?.('data-preview-url'),
             media.getAttribute?.('data-video-preview'),
@@ -460,12 +98,11 @@
         const epornerUrl = resolveEpornerPreviewUrl(card);
         if (epornerUrl) return epornerUrl;
 
-        // 部分站点（如 xHamster）把预览地址直接放在卡片链接自身，
-        // querySelector 只搜索后代，必须先检查 card 本身。
         const ownUrl = sourceFromMedia(card);
         if (ownUrl) return ownUrl;
 
         const directCandidates = card.querySelectorAll([
+            '[data-pvv]',
             '[data-preview-url]',
             '[data-video-preview]',
             '[data-previewvideo]',
@@ -494,11 +131,91 @@
                 } catch (_) {}
             }
         }
+        return null;
+    }
 
+    function isXVideosDetailUrl(href) {
+        if (!IS_XVIDEOS || !href) return false;
+        try {
+            const url = new URL(href);
+            return url.origin === location.origin && /^\/video(?:\.[^/]+|\d+)(?:\/|$)/i.test(url.pathname);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function cardUrl(card) {
+        if (!(card instanceof Element)) return null;
+        let link = null;
+        if (IS_XVIDEOS && card.matches('.thumb-block:not(.thumb-ad)')) {
+            link = card.querySelector('.thumb-inside .thumb img[data-pvv]')?.closest('a[href]');
+        } else if (IS_EPORNER && card.matches('.mb')) {
+            link = card.querySelector('.mbimg a[href^="/video-"], .mbcontent a[href^="/video-"]');
+        } else if (IS_PORNHUB && card.matches('li[data-video-vkey], li[data-video-id]')) {
+            link = card.querySelector('a.imageLink[href*="view_video.php?viewkey="]');
+        } else {
+            link = card.matches('a[href]') ? card : card.querySelector('img')?.closest('a[href]') || card.querySelector('a[href]');
+        }
+        const href = normalizeMediaUrl(link?.getAttribute('href'));
+        return IS_XVIDEOS && card.matches('.thumb-block:not(.thumb-ad)') && !isXVideosDetailUrl(href) ? null : href;
+    }
+
+    function isPreviewCapableCard(card) {
+        if (!(card instanceof Element)) return false;
+        return Boolean(cardUrl(card) && card.querySelector('img, picture') && resolvePreviewUrl(card));
+    }
+
+    function findCard(target) {
+        let card = null;
+
+        if (IS_XVIDEOS) {
+            card = safeClosest(target, '.thumb-block:not(.thumb-ad)');
+            if (card?.querySelector('.thumb-inside .thumb img[data-pvv]') && isPreviewCapableCard(card)) return card;
+        }
+
+        card = safeClosest(target, 'li[data-video-vkey], li[data-video-id]');
+        if (IS_PORNHUB && card?.querySelector('a.imageLink[data-webm][href*="view_video.php?viewkey="] img') && isPreviewCapableCard(card)) return card;
+
+        if (IS_XHAMSTER) {
+            card = safeClosest(target, 'a[data-previewvideo][href]');
+            if (!isPreviewCapableCard(card)) return null;
+            try {
+                const url = new URL(cardUrl(card));
+                return url.origin === location.origin && /^\/videos\/[^/]+(?:\/|$)/i.test(url.pathname) ? card : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        card = safeClosest(target, 'a[href]');
+        if (IS_MISSAV && card?.querySelector('video.preview[data-src], video.preview[src]') && isPreviewCapableCard(card)) return card;
+        if (IS_SPANKBANG && card?.matches('[data-testid="recommended-video"]') && isPreviewCapableCard(card)) return card;
+
+        card = safeClosest(target, '.mb[data-id], .mb[data-vp]');
+        if (IS_EPORNER && card?.querySelector('.mbimg img, .mbcontent img') && cardUrl(card) && resolveEpornerPreviewUrl(card)) return card;
+
+        card = safeClosest(target, '.mb');
+        if (IS_RULE34VIDEO && card?.dataset.id && isPreviewCapableCard(card)) return card;
+
+        card = safeClosest(target, '.item.thumb, a.th');
+        if (IS_EPORNER && isPreviewCapableCard(card)) return card;
+
+        card = safeClosest(target, '.video-item, .js-video-item, [id^="recommended_video"]');
+        if (IS_SPECIAL_SITE && isPreviewCapableCard(card)) return card;
+
+        card = safeClosest(target, 'a[href]');
+        if (isPreviewCapableCard(card)) return card;
+
+        card = safeClosest(target, 'article, li, [class*="video" i], [class*="thumb" i], [class*="card" i]');
+        if (isPreviewCapableCard(card)) return card;
         return null;
     }
 
     function findPreviewHost(card) {
+        if (IS_XVIDEOS && card.matches('.thumb-block:not(.thumb-ad)')) {
+            const cover = card.querySelector('.thumb-inside .thumb');
+            if (cover instanceof HTMLElement) return cover;
+        }
         const imageLink = card.querySelector('img')?.closest('a');
         const candidates = [
             card.querySelector('.mbcontent'),
@@ -510,7 +227,7 @@
             card.querySelector('.video-thumb'),
             card.querySelector('.cover'),
             imageLink,
-            card.querySelector('[data-preview-url], [data-video-preview], [data-previewvideo], [data-trailer], [data-webm], [data-preview]'),
+            card.querySelector('[data-pvv], [data-preview-url], [data-video-preview], [data-previewvideo], [data-trailer], [data-webm], [data-preview]'),
             card.querySelector('video[src], video[data-src], video source[src], video source[data-src]'),
             card,
         ];
@@ -521,114 +238,328 @@
         }) || card;
     }
 
-    function cardUrl(card) {
-        if (!(card instanceof Element)) return null;
-        const link = IS_EPORNER && card.matches('.mb')
-            ? card.querySelector('.mbimg a[href^="/video-"], .mbcontent a[href^="/video-"]')
-            : IS_PORNHUB && card.matches('li[data-video-vkey], li[data-video-id]')
-                ? card.querySelector('a.imageLink[href*="view_video.php?viewkey="]')
-                : card.matches('a[href]') ? card : card.querySelector('img')?.closest('a[href]') || card.querySelector('a[href]');
-        return normalizeMediaUrl(link?.getAttribute('href'));
-    }
-
     function isCoverTarget(card, target) {
-        if (!(target instanceof Element)) return false;
-        return findPreviewHost(card).contains(target);
+        return target instanceof Element && findPreviewHost(card).contains(target);
     }
 
-    function resetMissAvPreviewState() {
-        const seen = new Set();
-        document.querySelectorAll('.thumbnail, [x-data]').forEach(function (node) {
-            const stack = node._x_dataStack;
-            if (!Array.isArray(stack)) return;
-            stack.forEach(function (state) {
-                if (!state || seen.has(state)) return;
-                seen.add(state);
-                if (Array.isArray(state.holdPreviews)) state.holdPreviews.splice(0, state.holdPreviews.length);
-                if ('showPreview' in state) state.showPreview = null;
+    function initMissAv() {
+        let missAvActive = null;
+        let enforcingSinglePreview = false;
+        let previewStartedAt = 0;
+        let previewScrollY = null;
+        let touch = null;
+        let lastScrollAt = 0;
+        let lastScrollY = window.scrollY;
+
+        function resetMissAvPreviewState() {
+            const seen = new Set();
+            document.querySelectorAll('.thumbnail, [x-data]').forEach(function (node) {
+                const stack = node._x_dataStack;
+                if (!Array.isArray(stack)) return;
+                stack.forEach(function (state) {
+                    if (!state || seen.has(state)) return;
+                    seen.add(state);
+                    if (Array.isArray(state.holdPreviews)) state.holdPreviews.splice(0, state.holdPreviews.length);
+                    if ('showPreview' in state) state.showPreview = null;
+                });
             });
-        });
-    }
+        }
 
-    function setMissAvHeldPreview(video) {
-        const id = String(video.id || '').replace(/^preview-/, '');
-        if (!id) return;
-        const seen = new Set();
-        document.querySelectorAll('.thumbnail, [x-data]').forEach(function (node) {
-            const stack = node._x_dataStack;
-            if (!Array.isArray(stack)) return;
-            stack.forEach(function (state) {
-                if (!state || seen.has(state) || !Array.isArray(state.holdPreviews)) return;
-                seen.add(state);
-                state.holdPreviews.splice(0, state.holdPreviews.length, id);
-                if ('showPreview' in state) state.showPreview = id;
+        function setMissAvHeldPreview(video) {
+            const id = String(video.id || '').replace(/^preview-/, '');
+            if (!id) return;
+            const seen = new Set();
+            document.querySelectorAll('.thumbnail, [x-data]').forEach(function (node) {
+                const stack = node._x_dataStack;
+                if (!Array.isArray(stack)) return;
+                stack.forEach(function (state) {
+                    if (!state || seen.has(state) || !Array.isArray(state.holdPreviews)) return;
+                    seen.add(state);
+                    state.holdPreviews.splice(0, state.holdPreviews.length, id);
+                    if ('showPreview' in state) state.showPreview = id;
+                });
             });
+        }
+
+        function stopNativePreviews(exceptVideo = null) {
+            resetMissAvPreviewState();
+            document.querySelectorAll('video.preview').forEach(function (video) {
+                if (video === exceptVideo) return;
+                try { video.pause(); } catch (_) {}
+                try { video.currentTime = 0; } catch (_) {}
+                video.classList.add('hidden');
+                video.parentElement?.querySelector('img')?.classList.remove('hidden');
+            });
+        }
+
+        function stopMissAvPreview() {
+            const current = missAvActive;
+            missAvActive = null;
+            stopNativePreviews();
+            current?.observer?.disconnect();
+            if (current?.video) {
+                try { current.video.pause(); } catch (_) {}
+                try { current.video.currentTime = 0; } catch (_) {}
+                current.video.classList.add('hidden');
+                current.video.parentElement?.querySelector('img')?.classList.remove('hidden');
+            }
+            previewScrollY = null;
+        }
+
+        function markPreviewStarted() {
+            previewStartedAt = Date.now();
+            previewScrollY = window.scrollY;
+        }
+
+        function watchMissAvVisibility(card) {
+            if (typeof IntersectionObserver !== 'function' || !card) return null;
+            const observer = new IntersectionObserver(function (entries) {
+                if (entries.some(function (entry) { return entry.target === card && entry.intersectionRatio < 0.08; })) {
+                    stopMissAvPreview();
+                }
+            }, { threshold: [0, 0.08] });
+            observer.observe(card);
+            return observer;
+        }
+
+        function enforceSingleNativePreview(video) {
+            if (enforcingSinglePreview || !(video instanceof HTMLVideoElement) || !video.matches('video.preview')) return;
+            enforcingSinglePreview = true;
+            try {
+                stopNativePreviews(video);
+                setMissAvHeldPreview(video);
+                video.classList.remove('hidden');
+                video.parentElement?.querySelector('img')?.classList.add('hidden');
+
+                if (missAvActive?.video !== video) {
+                    missAvActive?.observer?.disconnect();
+                    const card = video.closest('a[href]') || video.parentElement;
+                    missAvActive = {
+                        card,
+                        video,
+                        observer: watchMissAvVisibility(card),
+                    };
+                }
+                markPreviewStarted();
+            } finally {
+                enforcingSinglePreview = false;
+            }
+        }
+
+        function cancelPreviewForGesture() {
+            if (missAvActive || document.querySelector('video.preview:not(.hidden)')) stopMissAvPreview();
+        }
+
+        document.addEventListener('play', function (event) {
+            enforceSingleNativePreview(event.target);
+        }, true);
+        document.addEventListener('playing', function (event) {
+            enforceSingleNativePreview(event.target);
+        }, true);
+
+        window.addEventListener('touchstart', function (event) {
+            if (event.touches.length !== 1) {
+                touch = null;
+                return;
+            }
+            const point = event.touches[0];
+            const card = findCard(event.target);
+            const now = Date.now();
+            touch = {
+                x: point.clientX,
+                y: point.clientY,
+                card,
+                cover: Boolean(card && isCoverTarget(card, event.target)),
+                startedAt: now,
+                scrollY: window.scrollY,
+                moved: false,
+                settled: now - lastScrollAt >= SCROLL_SETTLE_MS,
+            };
+        }, { capture: true, passive: true });
+
+        window.addEventListener('touchmove', function (event) {
+            if (!touch || event.touches.length !== 1 || touch.moved) return;
+            const point = event.touches[0];
+            const fingerDistance = Math.hypot(point.clientX - touch.x, point.clientY - touch.y);
+            const pageDistance = Math.abs(window.scrollY - touch.scrollY);
+            if (fingerDistance < SWIPE_CANCEL_DISTANCE && pageDistance < SWIPE_CANCEL_DISTANCE) return;
+            touch.moved = true;
+            cancelPreviewForGesture();
+        }, { capture: true, passive: true });
+
+        window.addEventListener('touchend', function () {
+            touch = null;
+        }, { capture: true, passive: true });
+
+        window.addEventListener('touchcancel', function () {
+            cancelPreviewForGesture();
+            touch = null;
+        }, { capture: true, passive: true });
+
+        window.addEventListener('scroll', function (event) {
+            if (event.target !== document && event.target !== document.documentElement && event.target !== window) return;
+            const y = window.scrollY;
+            if (Math.abs(y - lastScrollY) < 1) return;
+            lastScrollY = y;
+
+            if (missAvActive && Date.now() - previewStartedAt < 400) {
+                previewScrollY = y;
+                return;
+            }
+
+            lastScrollAt = Date.now();
+            if (touch) touch.moved = true;
+            if (previewScrollY === null) previewScrollY = y;
+            if (Math.abs(y - previewScrollY) >= PREVIEW_SCROLL_CANCEL_DISTANCE) cancelPreviewForGesture();
+        }, { capture: true, passive: true });
+
+        window.addEventListener('pagehide', stopMissAvPreview);
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) stopMissAvPreview();
         });
+
+        if (document.documentElement) initializeDocument();
+        else document.addEventListener('readystatechange', initializeDocument, { once: true });
     }
 
-    function stopNativePreviews(exceptVideo = null) {
-        resetMissAvPreviewState();
-        document.querySelectorAll('video.preview').forEach(function (video) {
-            if (video === exceptVideo) return;
-            try { video.pause(); } catch (_) {}
-            try { video.currentTime = 0; } catch (_) {}
-            video.classList.add('hidden');
-            video.parentElement?.querySelector('img')?.classList.remove('hidden');
-        });
+    if (IS_MISSAV) {
+        initMissAv();
+        return;
+    }
+
+    function addStyle() {
+        if (!document.documentElement || document.getElementById('__mobile_preview_style__')) return;
+        const style = document.createElement('style');
+        style.id = '__mobile_preview_style__';
+        style.textContent = `
+.${PREVIEW_CLASS}{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;display:block!important;z-index:2147483000!important;margin:0!important;padding:0!important;border:0!important;outline:0!important;background:#000!important;pointer-events:none!important;opacity:1!important;visibility:visible!important;}
+`;
+        (document.head || document.documentElement).appendChild(style);
+    }
+
+    function initializeDocument() {
+        if (!document.documentElement) return;
+        addStyle();
+        if (IS_XVIDEOS) document.documentElement.setAttribute(LINK_INTERACTION_OWNER_ATTR, 'cover-video-preview');
+        document.documentElement.setAttribute(COVER_PREVIEW_READY_ATTR, '1');
+    }
+
+    function attributeSnapshot(element, names) {
+        const result = {};
+        for (const name of names) result[name] = element.hasAttribute(name) ? element.getAttribute(name) : null;
+        return result;
+    }
+
+    function restoreAttributes(element, snapshot) {
+        for (const [name, value] of Object.entries(snapshot)) {
+            if (value === null) element.removeAttribute(name);
+            else element.setAttribute(name, value);
+        }
+    }
+
+    function snapshotNativeVideo(video) {
+        const image = video.parentElement?.querySelector('img') || null;
+        return {
+            attrs: attributeSnapshot(video, ['src', 'class', 'muted', 'autoplay', 'loop', 'playsinline', 'webkit-playsinline', 'preload', 'disablepictureinpicture']),
+            image,
+            imageAttrs: image ? attributeSnapshot(image, ['class', 'style', 'hidden']) : null,
+            muted: video.muted,
+            defaultMuted: video.defaultMuted,
+            autoplay: video.autoplay,
+            loop: video.loop,
+            playsInline: video.playsInline,
+            preload: video.preload,
+            disablePictureInPicture: video.disablePictureInPicture,
+            paused: video.paused,
+            currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
+        };
+    }
+
+    function restoreNativeVideo(video, snapshot) {
+        try { video.pause(); } catch (_) {}
+        restoreAttributes(video, snapshot.attrs);
+        if (snapshot.image && snapshot.imageAttrs) restoreAttributes(snapshot.image, snapshot.imageAttrs);
+        try { video.muted = snapshot.muted; } catch (_) {}
+        try { video.defaultMuted = snapshot.defaultMuted; } catch (_) {}
+        try { video.autoplay = snapshot.autoplay; } catch (_) {}
+        try { video.loop = snapshot.loop; } catch (_) {}
+        try { video.playsInline = snapshot.playsInline; } catch (_) {}
+        try { video.preload = snapshot.preload; } catch (_) {}
+        try { video.disablePictureInPicture = snapshot.disablePictureInPicture; } catch (_) {}
+        try { video.load(); } catch (_) {}
+        const restorePlayback = function () {
+            try { video.currentTime = snapshot.currentTime; } catch (_) {}
+            if (snapshot.paused) {
+                try { video.pause(); } catch (_) {}
+            } else {
+                try { video.play()?.catch?.(function () {}); } catch (_) {}
+            }
+        };
+        if (video.readyState >= 1 || !video.currentSrc) restorePlayback();
+        else video.addEventListener('loadedmetadata', restorePlayback, { once: true });
+    }
+
+    function releaseDynamicVideo(video) {
+        if (!video) return;
+        try { video.pause(); } catch (_) {}
+        try {
+            video.removeAttribute('src');
+            video.querySelectorAll('source').forEach(function (source) { source.removeAttribute('src'); });
+            video.load();
+        } catch (_) {}
+        video.remove();
     }
 
     function stopActive() {
-        stopNativePreviews();
-        if (!active) {
-            return;
-        }
-        active.observer?.disconnect();
-        active.video?.pause?.();
-        if (active.native) {
-            try { active.video.currentTime = 0; } catch (_) {}
-            active.video.classList.add('hidden');
-            active.video.parentElement?.querySelector('img')?.classList.remove('hidden');
-        } else {
-            active.video?.remove();
-        }
-        active.card?.classList.remove(ACTIVE_CLASS);
-        if (active.host?.dataset.previewPosition === '1') {
-            active.host.style.position = active.oldPosition;
-            delete active.host.dataset.previewPosition;
-        }
+        const current = active;
         active = null;
-        previewScrollY = null;
-    }
-
-    function markPreviewStarted() {
-        previewStartedAt = Date.now();
-        previewScrollY = window.scrollY;
+        if (!current) return;
+        current.observer?.disconnect();
+        current.video.removeEventListener('error', current.onError);
+        if (current.native) restoreNativeVideo(current.video, current.snapshot);
+        else releaseDynamicVideo(current.video);
+        current.card?.classList.remove(ACTIVE_CLASS);
+        if (current.positionChanged) current.host.style.position = current.oldPosition;
     }
 
     function watchVisibility(card) {
         if (typeof IntersectionObserver !== 'function') return null;
         const observer = new IntersectionObserver(function (entries) {
-            if (entries.some(function (entry) { return entry.target === card && entry.intersectionRatio < 0.08; })) {
-                stopActive();
-            }
+            if (entries.some(function (entry) { return entry.target === card && entry.intersectionRatio < 0.08; })) stopActive();
         }, { threshold: [0, 0.08] });
         observer.observe(card);
         return observer;
     }
 
-    function mountPreview(card, url) {
+    function createActiveRecord(card, host, video, details) {
+        const record = {
+            card,
+            href: cardUrl(card),
+            host,
+            video,
+            oldPosition: details.oldPosition || '',
+            positionChanged: Boolean(details.positionChanged),
+            native: Boolean(details.native),
+            snapshot: details.snapshot || null,
+            scrollY: window.scrollY,
+            observer: null,
+            onError: null,
+        };
+        record.observer = watchVisibility(card);
+        record.onError = function () { if (active === record) stopActive(); };
+        video.addEventListener('error', record.onError, { once: true });
+        active = record;
+        return record;
+    }
+
+    function mountDynamicPreview(card, url) {
         stopActive();
         addStyle();
-
         const host = findPreviewHost(card);
-        const computed = getComputedStyle(host).position;
         const oldPosition = host.style.position;
-        if (computed === 'static') {
-            host.dataset.previewPosition = '1';
-            host.style.position = 'relative';
-        }
+        const positionChanged = getComputedStyle(host).position === 'static';
+        if (positionChanged) host.style.position = 'relative';
 
-        const img = card.querySelector('img');
         const video = document.createElement('video');
         video.className = PREVIEW_CLASS;
         video.muted = true;
@@ -641,56 +572,46 @@
         video.setAttribute('muted', '');
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
+        const img = card.querySelector('img');
         if (img?.currentSrc || img?.src) video.poster = img.currentSrc || img.src;
         video.src = url;
 
         card.classList.add(ACTIVE_CLASS);
         host.appendChild(video);
-        active = {
-            card,
-            host,
-            video,
-            oldPosition,
-            observer: watchVisibility(card),
-        };
-        markPreviewStarted();
-
-        video.addEventListener('error', function () {
-            if (active?.video === video) stopActive();
-        }, { once: true });
-
+        createActiveRecord(card, host, video, { oldPosition, positionChanged });
         try {
             const task = video.play();
-            task?.catch?.(function () {});
-        } catch (_) {}
+            task?.catch?.(function () { if (active?.video === video) stopActive(); });
+        } catch (_) {
+            stopActive();
+            return false;
+        }
         return true;
     }
 
     function mountNativePreview(card, video) {
         stopActive();
+        const snapshot = snapshotNativeVideo(video);
         const src = sourceFromMedia(video);
         if (src && !video.getAttribute('src')) video.src = src;
-        stopNativePreviews(video);
-        setMissAvHeldPreview(video);
         video.muted = true;
         video.defaultMuted = true;
         video.loop = true;
         video.playsInline = true;
+        video.setAttribute('muted', '');
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
         video.classList.remove('hidden');
-        video.parentElement?.querySelector('img')?.classList.add('hidden');
-        active = {
-            card,
-            host: video.parentElement,
-            video,
-            oldPosition: '',
-            observer: watchVisibility(card),
-            native: true,
-        };
-        markPreviewStarted();
+        snapshot.image?.classList.add('hidden');
+        card.classList.add(ACTIVE_CLASS);
+        createActiveRecord(card, video.parentElement || card, video, { native: true, snapshot });
         try {
             const task = video.play();
             task?.catch?.(function () { if (active?.video === video) stopActive(); });
-        } catch (_) { stopActive(); }
+        } catch (_) {
+            stopActive();
+            return false;
+        }
         return true;
     }
 
@@ -698,7 +619,7 @@
         const nativeVideo = card.querySelector('video.preview[data-src], video.preview[src]');
         if (nativeVideo && sourceFromMedia(nativeVideo)) return mountNativePreview(card, nativeVideo);
         const url = resolvePreviewUrl(card);
-        return url ? mountPreview(card, url) : false;
+        return url ? mountDynamicPreview(card, url) : false;
     }
 
     function requestBackgroundOpen(href) {
@@ -710,97 +631,38 @@
         return event.defaultPrevented;
     }
 
-    function openCardLink(card) {
-        const href = cardUrl(card);
+    function openCardLink(card, expectedHref = null) {
+        const href = expectedHref || cardUrl(card);
         if (!href) return;
         stopActive();
-        // “新标签页打开”存在且已开启时会接管为真正的后台标签；
-        // 未安装或已关闭时无人接管，封面预览保持独立并按网站原行为进入当前页。
         if (requestBackgroundOpen(href)) return;
         location.assign(href);
     }
 
-    window.addEventListener('click', function (event) {
-        if (IS_MISSAV) return;
-
-        const card = findCard(event.target);
-        if (!card) {
-            if (active) stopActive();
-            return;
-        }
-        if (!isCoverTarget(card, event.target)) return;
-
-        if (compatClickGuard) {
-            if (Date.now() >= compatClickGuard.until) {
-                compatClickGuard = null;
-            } else if (card === compatClickGuard.card) {
-                compatClickGuard = null;
-                event.preventDefault();
-                event.stopImmediatePropagation();
-                return;
-            }
-        }
-
-        const nativeVideo = card.querySelector('video.preview[data-src], video.preview[src]');
-        const nativePreviewIsOpen = Boolean(nativeVideo && (
-            !nativeVideo.classList.contains('hidden') || !nativeVideo.paused
-        ));
-        if (nativePreviewIsOpen || active?.card === card) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            openCardLink(card);
-        } else if (startPreview(card)) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-        }
-    }, true);
-
-    function enforceSingleNativePreview(video) {
-        if (enforcingSinglePreview || !(video instanceof HTMLVideoElement) || !video.matches('video.preview')) return;
-        enforcingSinglePreview = true;
-        try {
-            stopNativePreviews(video);
-            setMissAvHeldPreview(video);
-            video.classList.remove('hidden');
-            video.parentElement?.querySelector('img')?.classList.add('hidden');
-
-            if (active?.video !== video) {
-                active?.observer?.disconnect();
-                if (active && !active.native) {
-                    try { active.video?.pause?.(); } catch (_) {}
-                    active.video?.remove();
-                    active.card?.classList.remove(ACTIVE_CLASS);
-                }
-                const card = video.closest('a[href]') || video.parentElement;
-                active = {
-                    card,
-                    host: video.parentElement,
-                    video,
-                    oldPosition: '',
-                    observer: card ? watchVisibility(card) : null,
-                    native: true,
-                };
-            }
-            markPreviewStarted();
-        } finally {
-            enforcingSinglePreview = false;
-        }
+    function performCoverAction(card, expectedHref = null) {
+        const href = expectedHref || cardUrl(card);
+        if (!href || cardUrl(card) !== href) return;
+        if (active?.card === card && active.href === href) openCardLink(card, href);
+        else startPreview(card);
     }
 
-    document.addEventListener('play', function (event) {
-        enforceSingleNativePreview(event.target);
-    }, true);
-    document.addEventListener('playing', function (event) {
-        enforceSingleNativePreview(event.target);
-    }, true);
-
-    function cancelPreviewForGesture() {
-        if (active || document.querySelector('video.preview:not(.hidden)')) stopActive();
+    function sameContext(card, href, otherCard, otherHref) {
+        return Boolean(card && otherCard && card === otherCard && href && href === otherHref);
     }
 
     function guardCompatibilityClick(card) {
-        if (!card) return;
-        compatClickGuard = { card, until: Date.now() + 900 };
+        if (card) compatClickGuard = { card, href: cardUrl(card), until: Date.now() + 900 };
+    }
+
+    function consumeCompatibilityClick(card) {
+        if (!compatClickGuard) return false;
+        if (Date.now() >= compatClickGuard.until) {
+            compatClickGuard = null;
+            return false;
+        }
+        if (compatClickGuard.card !== card || compatClickGuard.href !== cardUrl(card)) return false;
+        compatClickGuard = null;
+        return true;
     }
 
     function blockConflictingNativePreview(event) {
@@ -809,137 +671,129 @@
         if (!fromTouchPointer && Date.now() > nativePreviewBlockUntil) return;
         const card = findCard(event.target);
         if (!card || !isCoverTarget(card, event.target)) return;
-        const url = cardUrl(card);
-        if (!fromTouchPointer && nativePreviewBlockUrl && url !== nativePreviewBlockUrl) return;
+        const href = cardUrl(card);
+        if (!fromTouchPointer && nativePreviewBlockUrl && href !== nativePreviewBlockUrl) return;
         if (fromTouchPointer) {
-            nativePreviewBlockUrl = url;
+            nativePreviewBlockUrl = href;
             nativePreviewBlockUntil = Date.now() + 1200;
         }
         event.stopImmediatePropagation();
     }
 
-    window.addEventListener('pointerover', blockConflictingNativePreview, true);
-    window.addEventListener('pointerenter', blockConflictingNativePreview, true);
-    window.addEventListener('mouseover', blockConflictingNativePreview, true);
-    window.addEventListener('mouseenter', blockConflictingNativePreview, true);
+    ['pointerover', 'pointerenter', 'mouseover', 'mouseenter'].forEach(function (type) {
+        window.addEventListener(type, blockConflictingNativePreview, true);
+    });
 
     window.addEventListener('touchstart', function (event) {
         compatClickGuard = null;
-        if (event.touches.length !== 1) {
-            touch = null;
+        if (event.isTrusted !== true || event.touches.length !== 1) {
+            gesture = null;
+            return;
+        }
+        const card = findCard(event.target);
+        if (!card || !isCoverTarget(card, event.target)) {
+            gesture = null;
             return;
         }
         const point = event.touches[0];
-        const card = findCard(event.target);
-        const cover = Boolean(card && isCoverTarget(card, event.target));
         const now = Date.now();
-        touch = {
+        gesture = {
+            card,
+            href: cardUrl(card),
             x: point.clientX,
             y: point.clientY,
-            card,
-            url: cardUrl(card),
-            cover,
-            startedAt: now,
             scrollY: window.scrollY,
-            moved: false,
+            startedAt: now,
             settled: now - lastScrollAt >= SCROLL_SETTLE_MS,
+            moved: false,
         };
-        if (BLOCK_NATIVE_SITE_PREVIEW && cover) {
-            nativePreviewBlockUrl = touch.url;
-            nativePreviewBlockUntil = now + 1200;
-            // 阻止站点自己的触摸预览；不 preventDefault，Safari 仍可滚动和长按链接。
-            event.stopImmediatePropagation();
-        }
+        nativePreviewBlockUrl = gesture.href;
+        nativePreviewBlockUntil = now + 1200;
+        // 只在需要阻断站点原生触摸预览时截断网页监听；不 preventDefault，保留滚动和长按。
+        if (BLOCK_NATIVE_SITE_PREVIEW) event.stopImmediatePropagation();
     }, { capture: true, passive: true });
 
     window.addEventListener('touchmove', function (event) {
-        if (!touch) return;
-        if (BLOCK_NATIVE_SITE_PREVIEW && touch.cover) {
-            nativePreviewBlockUntil = Date.now() + 800;
-            event.stopImmediatePropagation();
-        }
-        if (event.touches.length !== 1 || touch.moved) return;
+        if (!gesture) return;
+        if (BLOCK_NATIVE_SITE_PREVIEW) event.stopImmediatePropagation();
+        if (event.touches.length !== 1 || gesture.moved) return;
         const point = event.touches[0];
-        const fingerDistance = Math.hypot(point.clientX - touch.x, point.clientY - touch.y);
-        const pageDistance = Math.abs(window.scrollY - touch.scrollY);
+        const fingerDistance = Math.hypot(point.clientX - gesture.x, point.clientY - gesture.y);
+        const pageDistance = Math.abs(window.scrollY - gesture.scrollY);
         if (fingerDistance < SWIPE_CANCEL_DISTANCE && pageDistance < SWIPE_CANCEL_DISTANCE) return;
-        touch.moved = true;
-        guardCompatibilityClick(touch.card);
-        cancelPreviewForGesture();
+        gesture.moved = true;
+        guardCompatibilityClick(gesture.card);
+        stopActive();
     }, { capture: true, passive: true });
 
     window.addEventListener('touchend', function (event) {
-        const origin = touch;
-        touch = null;
-        const eventCard = findCard(event.target);
-        const eventIsCover = Boolean(eventCard && isCoverTarget(eventCard, event.target));
-
-        if (BLOCK_NATIVE_SITE_PREVIEW && (origin?.cover || eventIsCover)) {
-            nativePreviewBlockUrl = origin?.url || cardUrl(eventCard);
-            nativePreviewBlockUntil = Date.now() + 800;
-            event.stopImmediatePropagation();
-        }
-        if (IS_MISSAV || !origin?.card || !origin.cover) return;
+        const origin = gesture;
+        gesture = null;
+        if (!origin) return;
+        const endCard = findCard(event.target);
+        const endHref = cardUrl(endCard);
+        const endIsCover = Boolean(endCard && isCoverTarget(endCard, event.target));
+        guardCompatibilityClick(origin.card);
+        nativePreviewBlockUrl = origin.href;
+        nativePreviewBlockUntil = Date.now() + 800;
+        if (BLOCK_NATIVE_SITE_PREVIEW) event.stopImmediatePropagation();
 
         const elapsed = Date.now() - origin.startedAt;
-        const sameCard = eventCard === origin.card;
-        const sameUrl = cardUrl(eventCard) === origin.url;
         const pageMoved = Math.abs(window.scrollY - origin.scrollY) >= SWIPE_CANCEL_DISTANCE;
         const pageStillSettling = Date.now() - lastScrollAt < SCROLL_SETTLE_MS;
         const validTap = !origin.moved && origin.settled && !pageMoved && !pageStillSettling &&
-            elapsed < TAP_MAX_MS && eventIsCover && sameCard && sameUrl;
-
-        if (!validTap) {
-            guardCompatibilityClick(origin.card);
-            return;
-        }
-
-        // 预览已开启时 touchend 进入详情，首次预览交给兼容 click。
-        const nativeVideo = origin.card.querySelector('video.preview[data-src], video.preview[src]');
-        const previewIsOpen = Boolean(nativeVideo && (!nativeVideo.classList.contains('hidden') || !nativeVideo.paused));
-        if (previewIsOpen || active?.card === origin.card) {
-            guardCompatibilityClick(origin.card);
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            openCardLink(origin.card);
-        }
+            elapsed < TAP_MAX_MS && endIsCover && sameContext(origin.card, origin.href, endCard, endHref);
+        if (!validTap) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        performCoverAction(origin.card, origin.href);
     }, { capture: true, passive: false });
+
+    window.addEventListener('touchcancel', function () {
+        if (gesture?.card) guardCompatibilityClick(gesture.card);
+        gesture = null;
+        stopActive();
+    }, { capture: true, passive: true });
 
     window.addEventListener('contextmenu', function (event) {
         const card = findCard(event.target);
         if (!card || !isCoverTarget(card, event.target)) return;
-        touch = null;
+        gesture = null;
         guardCompatibilityClick(card);
         nativePreviewBlockUrl = cardUrl(card);
         nativePreviewBlockUntil = Date.now() + 800;
     }, true);
 
-    window.addEventListener('touchcancel', function () {
-        if (touch?.card) guardCompatibilityClick(touch.card);
-        cancelPreviewForGesture();
-        touch = null;
-    }, { capture: true, passive: true });
+    window.addEventListener('click', function (event) {
+        if (event.isTrusted !== true) return;
+        const card = findCard(event.target);
+        if (!card) {
+            if (active) stopActive();
+            return;
+        }
+        if (!isCoverTarget(card, event.target)) return;
+        if (consumeCompatibilityClick(card)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+        }
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        performCoverAction(card);
+    }, true);
 
     window.addEventListener('scroll', function (event) {
-        // 只响应页面级滚动；元素内部滚动不参与封面手势判断。
         if (event.target !== document && event.target !== document.documentElement && event.target !== window) return;
         const y = window.scrollY;
         if (Math.abs(y - lastScrollY) < 1) return;
         lastScrollY = y;
-
-        // 预览刚开始造成的地址栏/布局位移不算用户滚动。
-        if (active && Date.now() - previewStartedAt < 400) {
-            previewScrollY = y;
-            return;
-        }
-
         lastScrollAt = Date.now();
-        if (touch) {
-            touch.moved = true;
-            guardCompatibilityClick(touch.card);
+        if (gesture && Math.abs(y - gesture.scrollY) >= SWIPE_CANCEL_DISTANCE) {
+            gesture.moved = true;
+            guardCompatibilityClick(gesture.card);
         }
-        if (previewScrollY === null) previewScrollY = y;
-        if (Math.abs(y - previewScrollY) >= 48) cancelPreviewForGesture();
+        if (active && Math.abs(y - active.scrollY) >= PREVIEW_SCROLL_CANCEL_DISTANCE) stopActive();
     }, { capture: true, passive: true });
 
     window.addEventListener('pagehide', stopActive);
@@ -947,6 +801,6 @@
         if (document.hidden) stopActive();
     });
 
-    document.documentElement?.setAttribute(COVER_PREVIEW_READY_ATTR, '1');
-    addStyle();
+    if (document.documentElement) initializeDocument();
+    else document.addEventListener('readystatechange', initializeDocument, { once: true });
 })();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name 标签页收藏
 // @namespace tabs-saver
-// @version 2.2.2
+// @version 2.2.5
 // @description 点击悬浮按钮可收藏当前或全部 Safari 标签页，并可选择保存后关闭标签页。
 // @match http://*/*
 // @match https://*/*
@@ -25,6 +25,7 @@
   const NEW_TAB_TOOLBAR_ID = "__tb__"
   const FLOATING_TOOLBAR_ID = "universal-pagination-floating-menu"
   const INITIAL_GAP = 0
+  const CONNECT_OVERLAP = 1
   const FALLBACK_RIGHT = 234
   const BOTTOM_GAP = 40
 
@@ -455,8 +456,8 @@
     style.id = "tab-save-style"
     style.textContent = `
 #${WRAP_ID}{position:fixed;left:0;top:0;z-index:2147483647;width:${BTN_SIZE}px;height:${BTN_SIZE}px;box-sizing:border-box;touch-action:none;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;transform:translate3d(0,0,0);will-change:left,top;}
-#${BUTTON_ID}{width:${BTN_SIZE}px;height:${BTN_SIZE}px;box-sizing:border-box;border-radius:50%;background:rgba(242,242,247,.92);color:rgba(28,28,30,.82);-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);border:0;box-shadow:inset 0 0 0 .5px rgba(60,60,67,.16);filter:none;display:flex;align-items:center;justify-content:center;margin:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .12s ease,opacity .2s,background .2s,color .2s,box-shadow .2s,border-radius .12s ease;}
-#${BUTTON_ID}[data-connected-right="true"]{border-radius:999px 0 0 999px;}
+#${BUTTON_ID}{--combined-separator:rgba(60,60,67,.16);position:relative;width:${BTN_SIZE}px;height:${BTN_SIZE}px;box-sizing:border-box;border-radius:50%;background:rgba(242,242,247,.92);color:rgba(28,28,30,.82);-webkit-backdrop-filter:blur(10px) saturate(140%);backdrop-filter:blur(10px) saturate(140%);border:0;box-shadow:inset 0 0 0 .5px var(--combined-separator);filter:none;display:flex;align-items:center;justify-content:center;margin:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .12s ease,opacity .2s,background .2s,color .2s,box-shadow .2s,border-radius .12s ease;}
+#${BUTTON_ID}[data-connected-right="true"]{border-radius:999px 0 0 999px;box-shadow:inset .5px 0 0 var(--combined-separator),inset 0 .5px 0 var(--combined-separator),inset 0 -.5px 0 var(--combined-separator);}
 #${BUTTON_ID}[data-saved="true"]{color:#34C759;}
 #${BUTTON_ID}:active{transform:scale(.96);opacity:.94;background:rgba(229,229,234,.96);}
 #${PICKER_ID}{position:fixed;right:8px;bottom:43px;z-index:2147483647;min-width:210px;max-width:min(300px,calc(100vw - 32px));max-height:min(420px,calc(100vh - 120px));overflow:auto;padding:10px;border-radius:18px;background:rgba(255,255,255,.84);-webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);border:1px solid rgba(60,60,67,.16);box-shadow:0 10px 30px rgba(0,0,0,.18);font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#111;}
@@ -500,7 +501,7 @@
 #${DIALOG_ID} .qts-dialog-cancel{background:#E5E5EA;color:#111;}
 #${DIALOG_ID} .qts-dialog-save{background:#7C4DFF;color:#fff;}
 #${DIALOG_ID} button:disabled{opacity:.55;}
-@media (prefers-color-scheme:dark){#${BUTTON_ID}{background:rgba(44,44,46,.82);color:rgba(255,255,255,.94);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16);}#${BUTTON_ID}[data-saved="true"]{color:#30D158;}#${PICKER_ID}{background:rgba(28,28,30,.78);border-color:rgba(255,255,255,.12);color:#fff;}#${PICKER_ID} .qts-title{color:#98989F;}#${DIALOG_ID}{color:#fff;}#${DIALOG_ID} .qts-dialog-card{background:rgba(28,28,30,.96);}#${DIALOG_ID} .qts-dialog-cancel,#${DIALOG_ID} .qts-dialog-group,#${DIALOG_ID} .qts-dialog-new-group{background:#3A3A3C;color:#fff;}#${DIALOG_ID} input[type="radio"]:checked{background-color:#1C1C1E!important;}}
+@media (prefers-color-scheme:dark){#${BUTTON_ID}{--combined-separator:rgba(255,255,255,.16);background:rgba(44,44,46,.82);color:rgba(255,255,255,.94);}#${BUTTON_ID}[data-saved="true"]{color:#30D158;}#${PICKER_ID}{background:rgba(28,28,30,.78);border-color:rgba(255,255,255,.12);color:#fff;}#${PICKER_ID} .qts-title{color:#98989F;}#${DIALOG_ID}{color:#fff;}#${DIALOG_ID} .qts-dialog-card{background:rgba(28,28,30,.96);}#${DIALOG_ID} .qts-dialog-cancel,#${DIALOG_ID} .qts-dialog-group,#${DIALOG_ID} .qts-dialog-new-group{background:#3A3A3C;color:#fff;}#${DIALOG_ID} input[type="radio"]:checked{background-color:#1C1C1E!important;}}
 `
     ;(document.head || document.documentElement).appendChild(style)
   }
@@ -581,7 +582,7 @@
     if (neighbor) {
       const rect = neighbor.getBoundingClientRect()
       if (rect.width > 0 && rect.height > 0) {
-        const pos = clampPos(rect.left - INITIAL_GAP - BTN_SIZE, rect.top)
+        const pos = clampPos(rect.left - INITIAL_GAP - BTN_SIZE + CONNECT_OVERLAP, rect.top)
         wrap.style.left = pos.left + "px"
         wrap.style.right = "auto"
         const usesBottom = neighbor.style.bottom && neighbor.style.bottom !== "auto" && (!neighbor.style.top || neighbor.style.top === "auto")

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         视频全屏按钮
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.7
+// @version      1.2.0
 // @description  检测网页视频，点击按钮后自动播放并切换为全屏。
 // @author       Scripting Agent
 // @match        http://*/*
@@ -19,7 +19,10 @@
   const PAGE_NAVIGATION_ID = "floating-page-navigation";
   const ACCESSORIES_CHANGE_EVENT = "floating-accessories-change";
   const USER_PLAYBACK_ATTRIBUTE = "data-user-playback-until";
+  const COVER_PREVIEW_ACTIVE_CLASS = "__mobile_preview_active__";
+  const COVER_PREVIEW_VIDEO_CLASS = "__mobile_preview__";
   const ITEM_SIZE = 35;
+  const CONNECT_OVERLAP = 1;
   const DEFAULT_RIGHT_GAP = 86;
   const DEFAULT_BOTTOM_GAP = 28;
   const state = {
@@ -49,8 +52,20 @@
     return rect.width > 1 && rect.height > 1;
   }
 
+  function isCoverPreviewVideo(video) {
+    if (!(video instanceof HTMLVideoElement)) return false;
+    if (video.classList.contains(COVER_PREVIEW_VIDEO_CLASS)) return true;
+    if (video.closest?.(`.${COVER_PREVIEW_ACTIVE_CLASS}`)) return true;
+
+    // MissAV 使用站点原生 video.preview 播放封面，封面预览脚本不会给卡片
+    // 添加通用 active class；仅在该站点且视频位于封面链接内时排除。
+    return /(^|\.)missav\.[a-z0-9-]+$/i.test(location.hostname) &&
+      video.matches("video.preview") &&
+      Boolean(video.closest?.("a[href], .thumbnail"));
+  }
+
   function videoScore(video) {
-    if (!(video instanceof HTMLVideoElement) || !elementVisible(video)) return -1;
+    if (!(video instanceof HTMLVideoElement) || !elementVisible(video) || isCoverPreviewVideo(video)) return -1;
     const rect = video.getBoundingClientRect();
     let score = rect.width * rect.height;
     const previewContainer = video.closest?.('a[href], [class*="preview" i], [class*="thumb" i], [class*="card" i], [class*="related" i], [class*="recommend" i]');
@@ -72,7 +87,7 @@
     );
     for (const selector of selectors) {
       const video = document.querySelector(selector);
-      if (video instanceof HTMLVideoElement && elementVisible(video)) return video;
+      if (video instanceof HTMLVideoElement && elementVisible(video) && !isCoverPreviewVideo(video)) return video;
     }
     return null;
   }
@@ -131,7 +146,7 @@
 
     if (elementVisible(navigation)) {
       const rect = navigation.getBoundingClientRect();
-      button.style.left = `${rect.right}px`;
+      button.style.left = `${rect.right - CONNECT_OVERLAP}px`;
       button.style.right = "auto";
       const usesBottom = navigation.style.bottom && navigation.style.bottom !== "auto" && (!navigation.style.top || navigation.style.top === "auto");
       if (usesBottom) {
@@ -143,7 +158,7 @@
       }
     } else if (elementVisible(base)) {
       const rect = base.getBoundingClientRect();
-      button.style.left = `${rect.right}px`;
+      button.style.left = `${rect.right - CONNECT_OVERLAP}px`;
       button.style.right = "auto";
       const usesBottom = base.style.bottom && base.style.bottom !== "auto" && (!base.style.top || base.style.top === "auto");
       if (usesBottom) {
@@ -206,9 +221,10 @@
         -webkit-tap-highlight-color: transparent;
         transform: translate3d(0,0,0);
       }
-      #${SCRIPT_ID}[data-connected-left="true"] { border-radius: 0 999px 999px 0; }
-      #${SCRIPT_ID}[data-connected-right="true"] { border-radius: 999px 0 0 999px; }
-      #${SCRIPT_ID}[data-connected-left="true"][data-connected-right="true"] { border-radius: 0; }
+      #${SCRIPT_ID}[data-connected-left="true"] { border-radius: 0 999px 999px 0; box-shadow: inset -.5px 0 0 var(--qvf-separator), inset 0 .5px 0 var(--qvf-separator), inset 0 -.5px 0 var(--qvf-separator); }
+      #${SCRIPT_ID}[data-connected-right="true"] { border-radius: 999px 0 0 999px; box-shadow: inset .5px 0 0 var(--qvf-separator), inset 0 .5px 0 var(--qvf-separator), inset 0 -.5px 0 var(--qvf-separator); }
+      #${SCRIPT_ID}[data-connected-left="true"][data-connected-right="true"] { border-radius: 0; box-shadow: inset 0 .5px 0 var(--qvf-separator), inset 0 -.5px 0 var(--qvf-separator); }
+      #${SCRIPT_ID}[data-connected-left="true"]::before { content: ""; position: absolute; z-index: 2; left: 0; top: 50%; width: 1px; height: 16px; background: var(--qvf-separator); transform: translateY(-50%); pointer-events: none; }
       #${SCRIPT_ID}:active { background: rgba(118,118,128,.12); }
       #${SCRIPT_ID} svg { width: 20px; height: 20px; display: block; pointer-events: none; }
       @media (prefers-color-scheme: dark) {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         翻页工具
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.0.9
+// @version      1.2.2
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/page-turning-tool.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/page-turning-tool.user.js
 // @description  自动识别网页上一页和下一页，并在悬浮工具栏右侧显示独立翻页按钮。
@@ -20,6 +20,7 @@
   const BASE_TOOLBAR_ID = "universal-pagination-floating-menu";
   const VIDEO_FULLSCREEN_ID = "video-fullscreen";
   const ITEM_SIZE = 35;
+  const CONNECT_OVERLAP = 1;
   const WIDTH = ITEM_SIZE * 2;
   const DEFAULT_RIGHT_GAP = 16;
   const DEFAULT_BOTTOM_GAP = 28;
@@ -1592,15 +1593,15 @@
   function setConnectedVisual(box, anchor) {
     const base = document.getElementById(BASE_TOOLBAR_ID);
     const fullscreen = document.getElementById(VIDEO_FULLSCREEN_ID);
-    const connected = Boolean(anchor?.isConnected);
-    box.dataset.connectedLeft = connected ? "true" : "false";
+    const connectedLeft = Boolean(anchor?.isConnected) && controlsAreAdjacent(anchor, box);
+    const connectedRight = controlsAreAdjacent(box, fullscreen);
+    box.dataset.connectedLeft = connectedLeft ? "true" : "false";
+    box.dataset.connectedRight = connectedRight ? "true" : "false";
 
+    if (base) base.dataset.connectedRight = connectedLeft ? "true" : "false";
     if (fullscreen) {
-      fullscreen.dataset.connectedRight = connected && anchor === fullscreen ? "true" : "false";
-    }
-    if (base) {
-      const baseRightNeighbor = visible(fullscreen) ? fullscreen : box;
-      base.dataset.connectedRight = controlsAreAdjacent(base, baseRightNeighbor) ? "true" : "false";
+      fullscreen.dataset.connectedLeft = connectedRight ? "true" : "false";
+      fullscreen.dataset.connectedRight = "false";
     }
   }
 
@@ -1631,7 +1632,7 @@
     if (anchor) {
       const rect = anchor.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        box.style.left = `${rect.right}px`;
+        box.style.left = `${rect.right - CONNECT_OVERLAP}px`;
         box.style.right = "auto";
         const usesBottom = anchor.style.bottom && anchor.style.bottom !== "auto" && (!anchor.style.top || anchor.style.top === "auto");
         if (usesBottom) {
@@ -1701,9 +1702,10 @@
         touch-action: manipulation;
         transform: translate3d(0,0,0);
       }
-      #${SCRIPT_ID}[data-connected-left="true"] { border-radius: 0 999px 999px 0; }
-      #${SCRIPT_ID}[data-connected-right="true"] { border-radius: 999px 0 0 999px; }
-      #${SCRIPT_ID}[data-connected-left="true"][data-connected-right="true"] { border-radius: 0; }
+      #${SCRIPT_ID}[data-connected-left="true"] { border-radius: 0 999px 999px 0; box-shadow: inset -.5px 0 0 var(--qpn-separator), inset 0 .5px 0 var(--qpn-separator), inset 0 -.5px 0 var(--qpn-separator); }
+      #${SCRIPT_ID}[data-connected-right="true"] { border-radius: 999px 0 0 999px; box-shadow: inset .5px 0 0 var(--qpn-separator), inset 0 .5px 0 var(--qpn-separator), inset 0 -.5px 0 var(--qpn-separator); }
+      #${SCRIPT_ID}[data-connected-left="true"][data-connected-right="true"] { border-radius: 0; box-shadow: inset 0 .5px 0 var(--qpn-separator), inset 0 -.5px 0 var(--qpn-separator); }
+      #${SCRIPT_ID}[data-connected-left="true"]::before { content: ""; position: absolute; z-index: 2; left: 0; top: 50%; width: 1px; height: 16px; background: var(--qpn-separator); transform: translateY(-50%); pointer-events: none; }
       #${SCRIPT_ID} button {
         box-sizing: border-box;
         position: relative;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         悬浮工具栏
 // @namespace    https://github.com/qiqi777iii/Scripts
-// @version      1.4.8
+// @version      1.6.1
 // @updateURL    https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-toolbar.user.js
 // @downloadURL  https://raw.githubusercontent.com/qiqi777iii/Scripts/main/userscripts/floating-toolbar.user.js
 // @description  提供关闭当前标签页、新建 Safari 起始页及可拖动的悬浮工具栏。
@@ -27,7 +27,9 @@
   const PAGE_NAVIGATION_ID = "floating-page-navigation";
   const ITEM_SIZE = 35;
   const BOUND_CONTROL_SIZE = 35;
+  const CONNECT_OVERLAP = 1;
   const PAGE_NAVIGATION_WIDTH = 70;
+  const VIDEO_FULLSCREEN_WIDTH = 35;
   const PAGE_NAVIGATION_RIGHT_GAP = 16;
   const SAFE_BOTTOM_GAP = 40;
   const DEFAULT_BOTTOM_GAP = 28;
@@ -81,7 +83,11 @@
   }
 
   function rightAccessoryWidth() {
-    return document.getElementById(PAGE_NAVIGATION_ID) ? PAGE_NAVIGATION_WIDTH : 0;
+    // 翻页组件存在时，始终再为最右侧全屏按钮预留一个按钮宽度；按钮显隐时
+    // 不移动前六个按钮，同时避免页面出现预览视频后全屏按钮伸出可视区域。
+    return document.getElementById(PAGE_NAVIGATION_ID)
+      ? PAGE_NAVIGATION_WIDTH + VIDEO_FULLSCREEN_WIDTH
+      : 0;
   }
 
   function defaultRightGap() {
@@ -137,7 +143,7 @@
     }
     const rect = toolbar.getBoundingClientRect();
     if (!(rect.width > 0 && rect.height > 0)) return;
-    control.style.left = `${Math.max(0, rect.left - BOUND_CONTROL_SIZE)}px`;
+    control.style.left = `${Math.max(0, rect.left - BOUND_CONTROL_SIZE + CONNECT_OVERLAP)}px`;
     control.style.right = "auto";
     const usesBottom = toolbar.style.bottom && toolbar.style.bottom !== "auto" && (!toolbar.style.top || toolbar.style.top === "auto");
     if (usesBottom) {
@@ -200,9 +206,10 @@
         user-select: none;
         touch-action: none;
       }
-      #${TOOLBAR_ID}[data-connected-left="true"] { border-radius: 0 999px 999px 0; }
-      #${TOOLBAR_ID}[data-connected-right="true"] { border-radius: 999px 0 0 999px; }
-      #${TOOLBAR_ID}[data-connected-left="true"][data-connected-right="true"] { border-radius: 0; }
+      #${TOOLBAR_ID}[data-connected-left="true"] { border-radius: 0 999px 999px 0; box-shadow: inset -.5px 0 0 var(--qft-separator), inset 0 .5px 0 var(--qft-separator), inset 0 -.5px 0 var(--qft-separator); }
+      #${TOOLBAR_ID}[data-connected-right="true"] { border-radius: 999px 0 0 999px; box-shadow: inset .5px 0 0 var(--qft-separator), inset 0 .5px 0 var(--qft-separator), inset 0 -.5px 0 var(--qft-separator); }
+      #${TOOLBAR_ID}[data-connected-left="true"][data-connected-right="true"] { border-radius: 0; box-shadow: inset 0 .5px 0 var(--qft-separator), inset 0 -.5px 0 var(--qft-separator); }
+      #${TOOLBAR_ID}[data-connected-left="true"]::before { content: ""; position: absolute; z-index: 2; left: 0; top: 50%; width: 1px; height: 16px; background: var(--qft-separator); transform: translateY(-50%); pointer-events: none; }
       @media (prefers-color-scheme: dark) {
         #${TOOLBAR_ID} {
           --qft-text: rgba(255,255,255,.94);

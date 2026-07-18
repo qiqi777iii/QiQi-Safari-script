@@ -1,34 +1,34 @@
 {
-  "version" : "2.2.2",
-  "localizedDescriptions" : {
-    "zh" : "从分享表把网页收藏到分组，稍后在脚本里查看和打开。",
-    "en" : "Save web pages from the share sheet into groups and browse them later."
-  },
-  "color" : "rgba(10, 132, 255, 1)",
-  "icon" : "bookmark.fill",
-  "description" : "Save web pages from the share sheet into groups and browse them later.",
-  "permissions" : null,
-  "localizedNames" : {
-    "zh" : "标签页收藏",
-    "en" : "Tabs Saver"
-  },
-  "name" : "Tabs Saver",
-  "contributors" : [
-
-  ],
-  "runInApp" : false,
-  "entry" : "index.tsx",
-  "iconImage" : null,
-  "author" : null,
   "remoteResource" : {
     "url" : "https:\/\/github.com\/qiqi777iii\/Scripts\/tree\/main\/scripts\/TabsSaver",
-    "hash" : "49849e73c9599ce617d6fee879f78b42",
+    "hash" : "82d299d7eadb8ebe9a6774cbea56de87",
     "autoUpdateInterval" : 600
   },
+  "icon" : "bookmark.fill",
+  "description" : "Save web pages from the share sheet into groups and browse them later.",
+  "entry" : "index.tsx",
   "intentInputTypes" : [
     "urls",
     "texts",
     "Text",
     "URLs"
+  ],
+  "color" : "rgba(10, 132, 255, 1)",
+  "version" : "2.2.5",
+  "name" : "Tabs Saver",
+  "author" : null,
+  "localizedDescriptions" : {
+    "en" : "Save web pages from the share sheet into groups and browse them later.",
+    "zh" : "从分享表把网页收藏到分组，稍后在脚本里查看和打开。"
+  },
+  "localizedNames" : {
+    "zh" : "标签页收藏",
+    "en" : "Tabs Saver"
+  },
+  "runInApp" : false,
+  "permissions" : null,
+  "iconImage" : null,
+  "contributors" : [
+
   ]
 }

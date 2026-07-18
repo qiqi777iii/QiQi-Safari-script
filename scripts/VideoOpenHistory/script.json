@@ -1,0 +1,11 @@
+{
+  "name": "视频打开记录",
+  "icon": "clock.arrow.circlepath",
+  "color": "#34C759",
+  "version": "1.0.1",
+  "runInApp": true,
+  "description": "查看和管理已经打开过的 MissAV 视频记录。",
+  "localizedNames": {
+    "zh": "视频打开记录"
+  }
+}
