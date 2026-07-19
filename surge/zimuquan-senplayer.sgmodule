@@ -1,11 +1,11 @@
-#!name=字幕圈 SenPlayer 下载
-#!desc=解析完整视频并调用 SenPlayer 下载
+#!name=字幕圈完整播放与 SenPlayer 下载
+#!desc=解锁会员视频完整播放并调用 SenPlayer 下载
 #!author=qiqi
 #!homepage=https://github.com/qiqi777iii/Scripts
 #!category=视频
 
 [Script]
-字幕圈 SenPlayer = type=http-response,pattern=^https?:\/\/(?:www\.)?zimuquan11\.uk\/index\.php\/vod\/play\/id\/\d+\/sid\/\d+\/nid\/\d+\.html(?:[?#].*)?$,requires-body=true,max-size=-1,timeout=10,script-path=https://raw.githubusercontent.com/qiqi777iii/Scripts/main/surge/zimuquan-senplayer.js
+字幕圈完整播放与下载 = type=http-response,pattern=^https?:\/\/[^\/]*zimuquan[^\/]*\/index\.php\/vod\/play\/,requires-body=true,max-size=-1,timeout=10,script-path=https://raw.githubusercontent.com/qiqi777iii/Scripts/main/surge/zimuquan-senplayer.js
 
 [MITM]
-hostname = %APPEND% zimuquan11.uk, www.zimuquan11.uk
+hostname = %APPEND% *.zimuquan*.top, *.zimuquan*.uk, *.zimuquan*.com
