@@ -1,0 +1,11 @@
+#!name=字幕圈 SenPlayer 下载
+#!desc=解析完整视频并调用 SenPlayer 下载
+#!author=qiqi
+#!homepage=https://github.com/qiqi777iii/Scripts
+#!category=视频
+
+[Script]
+字幕圈 SenPlayer = type=http-response,pattern=^https?:\/\/(?:www\.)?zimuquan11\.uk\/index\.php\/vod\/play\/id\/\d+\/sid\/\d+\/nid\/\d+\.html(?:[?#].*)?$,requires-body=true,max-size=-1,timeout=10,script-path=https://raw.githubusercontent.com/qiqi777iii/Scripts/main/surge/zimuquan-senplayer.js
+
+[MITM]
+hostname = %APPEND% zimuquan11.uk, www.zimuquan11.uk
